@@ -1,0 +1,141 @@
+import request from './request';
+
+// ==========================================
+// 1. 后台-课程建设管理 API
+// ==========================================
+export const getCourseList = (params) => request.get('/backend/course/list', { params });
+export const getCourseDetail = (id) => request.get(`/backend/course/detail/${id}`);
+export const createCourse = (data) => request.post('/backend/course/add', data);
+export const updateCourse = (data) => request.put('/backend/course/update', data);
+export const deleteCourse = (id) => request.delete(`/backend/course/delete/${id}`);
+export const updateCourseStatus = (data) => request.put('/backend/course/update', data); // 暂用 update 替代 status
+
+// ==========================================
+// 2. 课程分类管理 API
+// ==========================================
+export const getCourseCategoryTree = () => request.get('/course/category/tree');
+export const createCourseCategory = (data) => request.post('/course/category', data);
+export const updateCourseCategory = (data) => request.put('/course/category', data);
+export const deleteCourseCategory = (id) => request.delete(`/course/category/${id}`);
+
+// ==========================================
+// 3. 🌟 后台-课程章节管理 API (根据 api-docs.json 新增)
+// ==========================================
+export const getCourseChapterList = (courseId) => request.get('/course/chapter/list', { params: { courseId } });
+export const createCourseChapter = (data) => request.post('/course/chapter', data);
+export const updateCourseChapter = (data) => request.put('/course/chapter', data);
+export const deleteCourseChapter = (id) => request.delete(`/course/chapter/${id}`);
+
+// ==========================================
+// 4. 🌟 后台-课程课时管理 API (根据 api-docs.json 新增)
+// ==========================================
+export const getCourseHourList = (chapterId) => request.get('/course/hour/list', { params: { chapterId } });
+export const getCourseHourDetail = (id) => request.get(`/course/hour/${id}`);
+export const createCourseHour = (data) => request.post('/course/hour', data);
+export const updateCourseHour = (data) => request.put('/course/hour', data);
+export const deleteCourseHour = (id) => request.delete(`/course/hour/${id}`);
+
+// 🌟 为课程的特定课时绑定素材资源
+export const bindCourseResources = (courseId, data) => {
+  return request.post(`/backend/course/${courseId}/bind-resources`, data);
+};
+
+// 🌟 获取该课程绑定的所有素材资源列表
+export const getCourseResources = (courseId) => {
+  return request.get(`/backend/course/${courseId}/resources`);
+};
+
+
+// 🌟 解除课程/课时绑定的素材
+export const unbindCourseResource = (courseId, resourceId) => {
+  return request.delete(`/backend/course/${courseId}/resources/${resourceId}`);
+};
+
+
+// 🌟 发布课程作业 (全局作业)
+export const publishAssignment = (data) => {
+  return request.post('/backend/assignment/publish', data);
+};
+
+// 🌟 批改学生提交的作业
+export const gradeAssignmentSubmission = (data) => {
+  return request.put('/backend/assignment/grade', data);
+};
+
+// 🌟 获取题库列表 (带分页和条件筛选)
+export const getQuestionList = (params) => {
+  return request.get('/backend/questions', { params });
+};
+
+// 🌟 编辑/修改题目 (注意：id 在 URL 路径中，具体数据在 body 中)
+export const updateQuestion = (id, data) => {
+  return request.put(`/backend/questions/${id}`, data);
+};
+
+// 🌟 删除题目
+export const deleteQuestion = (id) => {
+  return request.delete(`/backend/questions/${id}`);
+};
+
+// 🌟 创建新题目
+export const createQuestion = (data) => {
+  return request.post('/backend/questions', data);
+};
+
+// 🌟 AI 一键出卷 (包含文件上传和 Query 参数)
+export const aiGenerateExam = (courseId, title, jobRoleTag, questionConfig, file) => {
+  const formData = new FormData();
+  formData.append('file', file); // 放入文件实体
+  
+  return request.post('/backend/exams/ai-generate', formData, {
+    params: { 
+      courseId, 
+      title, 
+      jobRoleTag, 
+      questionConfig 
+    },
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  });
+};
+
+
+// 🌟 1. 创建考试空壳
+export const createExam = (data) => {
+  return request.post('/backend/exams', data);
+};
+
+export const autoGenerateExam = (id, config) => {
+  return request.post(`/backend/exams/${id}/auto-generate`, config);
+};
+
+// 🌟 3. 手动绑定试卷题目
+export const bindExamQuestions = (id, questionIds) => {
+  return request.post(`/backend/exams/${id}/bind-questions`, questionIds);
+};
+
+// 🌟 获取考试列表 (用于通过 courseId 过滤出真实的考试 ID)
+export const getExamList = (params) => {
+  return request.get('/backend/exams', { params });
+};
+
+// 🌟 获取考试详情 (传入真实的 examId)
+export const getExamDetail = (id) => {
+  return request.get(`/backend/exams/${id}`);
+};
+
+// 🌟 修改考试配置
+export const updateExam = (id, data) => {
+  return request.put(`/backend/exams/${id}`, data);
+};
+
+// 🌟 删除考试
+export const deleteExam = (id) => {
+  return request.delete(`/backend/exams/${id}`);
+};
+
+// 🌟 获取指定考试下的所有题目 (预览试卷)
+export const getExamQuestions = (examId) => {
+  return request.get(`/backend/questions/exam/${examId}`);
+};
