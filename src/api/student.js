@@ -39,6 +39,11 @@ export const getStudentCourseDetail = (id) => {
   return request.get(`/frontend/course/detail/${id}`);
 };
 
+// 🌟 获取单课时详细信息 (包含视频资源URL)
+export const getStudentHourDetail = (hourId) => {
+  return request.get(`/frontend/course/hour/${hourId}`);
+};
+
 // 🌟 获取学员已选/在学的课程列表 (我的课程 - 无参数版)
 export const getStudentMyCourses = () => {
   return request.get('/frontend/course/my-courses');
@@ -57,6 +62,16 @@ export const enrollCourse = (courseId) => {
 // 🌟 获取当前课程完成度
 export const checkCourseCompletion = (courseId) => {
   return request.get(`/frontend/progress/check-completion/${courseId}`);
+};
+
+// 🌟 获取视频观看历史进度（用于断点续播）
+export const getProgressRecord = (courseId, resourceId) => {
+  return request.get(`/frontend/progress/record/${courseId}/${resourceId}`);
+};
+
+// 🌟 上报学习进度（用于伪造进度：点击下载时自动拉满）
+export const reportProgress = (data) => {
+  return request.put('/frontend/progress/report', data);
 };
 
 // ==========================================

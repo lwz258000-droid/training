@@ -57,6 +57,16 @@ export const publishAssignment = (data) => {
   return request.post('/backend/assignment/publish', data);
 };
 
+// 🌟 获取课程作业列表
+export const getAssignmentList = (courseId) => {
+  return request.get(`/backend/assignment/list/${courseId}`);
+};
+
+// 🌟 获取作业的学员提交列表
+export const getAssignmentSubmissions = (assignmentId) => {
+  return request.get(`/backend/assignment/${assignmentId}/submissions`);
+};
+
 // 🌟 批改学生提交的作业
 export const gradeAssignmentSubmission = (data) => {
   return request.put('/backend/assignment/grade', data);
@@ -80,6 +90,57 @@ export const deleteQuestion = (id) => {
 // 🌟 创建新题目
 export const createQuestion = (data) => {
   return request.post('/backend/questions', data);
+};
+
+// ==========================================
+// 🌟 通用文件上传函数 (使用原生 XHR，支持进度回调和模块标识)
+// ==========================================
+export const uploadFile = (file, moduleName = 'course', onUploadProgress) => {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = localStorage.getItem('token') || localStorage.getItem('satoken');
+    const tokenName = localStorage.getItem('tokenName') || 'satoken';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/upload/${moduleName}`, true);
+
+    if (token) {
+      xhr.setRequestHeader(tokenName, token);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onUploadProgress) {
+        const percent = Math.round((event.loaded * 100) / event.total);
+        onUploadProgress(percent);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (res.code === 200 || res.code === 0) {
+            resolve(res.data || res);
+          } else {
+            reject(new Error(res.msg || '上传失败'));
+          }
+        } catch (e) {
+          resolve(xhr.responseText);
+        }
+      } else {
+        reject(new Error(`上传失败 (状态码: ${xhr.status})`));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('网络断开或服务器无响应'));
+    };
+
+    xhr.send(formData);
+  });
 };
 
 // 🌟 AI 一键出卷 (包含文件上传和 Query 参数)

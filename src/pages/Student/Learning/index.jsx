@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getStudentCourseDetail, checkCourseCompletion } from '../../../api/student';
+import { getStudentCourseDetail, checkCourseCompletion, getStudentHourDetail, reportProgress, getProgressRecord } from '../../../api/student';
+import StudentLiveRoom from './StudentLiveRoom';
 
 export default function StudentLearning() {
   const navigate = useNavigate();
@@ -11,7 +12,65 @@ export default function StudentLearning() {
   
   const [courseData, setCourseData] = useState(null);
   const [activeLesson, setActiveLesson] = useState(null);
-
+  const [resourceUrl, setResourceUrl] = useState('');
+  
+  // 🌟 断点续播相关
+  const videoRef = useRef(null);
+  
+  // 🌟 获取历史进度并跳转
+  const restoreProgress = async (videoElement, courseId, lessonId) => {
+    if (!videoElement || !courseId || !lessonId) return;
+    try {
+      const res = await getProgressRecord(courseId, lessonId);
+      const record = res?.record || res;
+      if (record?.finishedDuration > 0) {
+        videoElement.currentTime = record.finishedDuration;
+        console.log(`⏪ 已跳转至上次观看位置: ${record.finishedDuration}秒`);
+      }
+    } catch (e) {
+      console.warn('获取历史进度失败:', e);
+    }
+  };
+  
+  // 🌟 定时保存进度（节流版本，使用原生 throttle）
+  let lastSaveTime = 0;
+  const saveProgressThrottled = (courseId, lessonId, currentTime, duration) => {
+    const now = Date.now();
+    if (now - lastSaveTime >= 5000) {
+      lastSaveTime = now;
+      reportProgress({
+        courseId: parseInt(courseId, 10),
+        hourId: lessonId,
+        resourceId: null,
+        totalDuration: Math.round(duration),
+        currentTime: Math.round(currentTime)
+      }).then(() => {
+        console.log(`💾 进度已保存: ${Math.round(currentTime)}/${Math.round(duration)}秒`);
+      }).catch(e => {
+        console.warn('保存进度失败:', e);
+      });
+    }
+  };
+  
+  // 🌟 组件卸载时保存进度
+  useEffect(() => {
+    return () => {
+      // 组件卸载时，如果视频正在播放，保存当前进度
+      if (videoRef.current) {
+        const video = videoRef.current;
+        if (video.duration) {
+          reportProgress({
+            courseId: parseInt(id, 10),
+            hourId: activeLesson?.id,
+            resourceId: activeLesson?.resourceId || null,
+            totalDuration: Math.round(video.duration),
+            currentTime: Math.round(video.currentTime)
+          }).catch(() => {});
+        }
+      }
+    };
+  }, [id, activeLesson]);
+  
   useEffect(() => {
     const fetchDetailAndProgress = async () => {
       setLoading(true);
@@ -23,50 +82,132 @@ export default function StudentLearning() {
 
         if (!detailRes) {
           setCourseData(null);
+          console.error('❌ 获取课程详情失败');
           return;
         }
 
         const data = detailRes?.data || detailRes;
         
-        // 进度兼容处理
+        // 调试信息：查看后端返回的原始课程数据
+        console.log('📦 后端返回的课程数据:', data);
+        console.log('📦 课程数据 keys:', data ? Object.keys(data) : 'null');
+        console.log('📦 chapters:', data?.chapters);
+        console.log('📦 lessons:', data?.lessons);
+        console.log('📦 hours:', data?.hours); // 新增：顶层课时数组
+        console.log('📦 data 类型:', typeof data);
+        console.log('📦 data keys:', Object.keys(data || {}));
+        console.log('📦 data.course:', data?.course);
+        console.log('📦 data.title:', data?.title);
+        console.log('📦 data.course?.title:', data?.course?.title);
+        console.log('📦 data.isRequired:', data?.isRequired);
+        console.log('📦 data.course?.isRequired:', data?.course?.isRequired);
+        
+        // 进度兼容处理 - 计算百分比
         const pData = progressRes?.data ?? progressRes;
         let progressVal = 0;
         if (typeof pData === 'number') {
-           progressVal = pData; 
+           progressVal = pData;
         } else if (pData && typeof pData === 'object') {
-           progressVal = pData.progress ?? pData.completionRate ?? pData.percent ?? 0;
+           // 后端返回 { totalHours, finishedHours } 格式，计算百分比
+           if (pData.totalHours && pData.finishedHours !== undefined) {
+             progressVal = Math.round((pData.finishedHours / pData.totalHours) * 100);
+           } else {
+             progressVal = pData.progress ?? pData.completionRate ?? pData.percent ?? 0;
+           }
         }
         
         // 🌟 核心修复：无敌兼容后端的章节/课时结构
         let finalChapters = [];
-        if (data.chapters && data.chapters.length > 0) {
-          // 结构 A: 包含章节，章节里有 lessons 或 hours
+        if (data.hours && data.hours.length > 0) {
+          // 结构 A: 课时在顶层的 hours 数组中（需要按章节分组）
+          const hoursByChapter = {};
+          data.hours.forEach(hour => {
+            const chapterId = hour.chapterId || 'default';
+            if (!hoursByChapter[chapterId]) {
+              hoursByChapter[chapterId] = [];
+            }
+            hoursByChapter[chapterId].push(hour);
+          });
+          
+          // 如果已经有章节数据，合并课时
+          if (data.chapters && data.chapters.length > 0) {
+            finalChapters = data.chapters.map(c => ({
+              ...c,
+              lessons: hoursByChapter[c.id] || []
+            }));
+          } else {
+            // 没有章节，只有课时
+            finalChapters = Object.keys(hoursByChapter).map(chapterId => ({
+              id: chapterId,
+              name: chapterId === 'default' ? '课时列表' : `章节 ${chapterId}`,
+              lessons: hoursByChapter[chapterId]
+            }));
+          }
+        } else if (data.chapters && data.chapters.length > 0) {
+          // 结构 B: 章节里有 lessons 或 hours
           finalChapters = data.chapters.map(c => ({
             ...c,
             lessons: c.lessons || c.hours || []
           }));
+        } else if (data.course?.chapters && data.course.chapters.length > 0) {
+          // 结构 C: 章节在 course 对象中
+          finalChapters = data.course.chapters.map(c => ({
+            ...c,
+            lessons: c.lessons || c.hours || []
+          }));
         } else if (data.lessons && data.lessons.length > 0) {
-          // 结构 B: 没有章节划分，直接丢过来一堆 lessons
+          // 结构 D: 没有章节划分，直接丢过来一堆 lessons
           finalChapters = [{ id: 'default-chapter', name: '课程目录', lessons: data.lessons }];
         } else if (Array.isArray(data)) {
-          // 结构 C: 整个返回值就是一个课时数组
+          // 结构 E: 整个返回值就是一个课时数组
           finalChapters = [{ id: 'default-chapter', name: '课程目录', lessons: data }];
         }
         
         const formattedData = {
           id: data.id || id,
-          title: data.title || data.name || '未命名课程',
-          isRequired: data.isRequired, 
-          progress: progressVal, 
-          intro: data.shortDesc || data.intro || data.content || '该课程暂无详细简介。',
-          chapters: finalChapters
+          // 🌟 兼容后端返回结构：直接返回课程对象或嵌套在 course 字段中
+          title: data.title || data.name || data.course?.title || data.course?.name || '未命名课程',
+          isRequired: data.isRequired ?? data.course?.isRequired,
+          progress: progressVal,
+          intro: data.shortDesc || data.intro || data.content || data.course?.shortDesc || data.course?.intro || data.course?.content || '该课程暂无详细简介。',
+          chapters: finalChapters,
+          resources: data.resources || []
         };
+        
+        // 调试信息：查看格式化后的课程数据
+        console.log('📚 格式化后的课程数据:', formattedData);
+        console.log('📚 章节数量:', finalChapters.length);
+        console.log('📚 课程资料数量:', formattedData.resources.length);
+        if (finalChapters.length > 0) {
+          console.log('📚 第一个章节:', finalChapters[0]);
+          console.log('📚 第一个章节的课时数量:', finalChapters[0].lessons?.length || 0);
+          if (finalChapters[0].lessons?.length > 0) {
+            console.log('📚 第一个课时:', finalChapters[0].lessons[0]);
+          }
+        }
         
         setCourseData(formattedData);
 
         // 默认选中第一节课自动准备播放
         if (formattedData.chapters.length > 0 && formattedData.chapters[0].lessons.length > 0) {
-          setActiveLesson(formattedData.chapters[0].lessons[0]);
+          const firstLesson = formattedData.chapters[0].lessons[0];
+          setActiveLesson(firstLesson);
+          
+          // 如果是视频或图文类型，立即获取资源URL
+          if (firstLesson.type === 0 || firstLesson.type === 1) {
+            try {
+              const res = await getStudentHourDetail(firstLesson.id);
+              console.log('📡 初始化API完整响应:', JSON.stringify(res, null, 2));
+              if (res?.resource?.url) {
+                console.log(firstLesson.type === 0 ? '📹' : '📄', '初始化获取到资源URL:', res.resource.url);
+                setResourceUrl(res.resource.url);
+              } else {
+                console.error('❌ 初始化未获取到资源URL，resource为null或url为空');
+              }
+            } catch (error) {
+              console.error('❌ 初始化获取资源URL失败:', error);
+            }
+          }
         }
 
       } catch (error) {
@@ -98,8 +239,46 @@ export default function StudentLearning() {
     );
   }
 
-  // 判断课时类型：1 是视频，其他认为是文档
-  const isVideo = activeLesson?.type === 1 || !!activeLesson?.playbackUrl;
+  // 判断课时类型：0=视频录播, 1=图文文档, 2=直播
+  const isVideo = activeLesson?.type === 0;
+  const isDocument = activeLesson?.type === 1;
+  const isLive = activeLesson?.type === 2;
+
+  // 处理课时选择：如果是视频或图文类型，获取资源URL
+  const handleLessonSelect = async (lesson) => {
+    setActiveLesson(lesson);
+    setResourceUrl(''); // 先清空
+    
+    // 如果是视频类型（type === 0）或图文类型（type === 1），调用API获取资源URL
+    if (lesson.type === 0 || lesson.type === 1) {
+      try {
+        const res = await getStudentHourDetail(lesson.id);
+        console.log('📡 API完整响应:', JSON.stringify(res, null, 2));
+        console.log('📡 res.resource:', res?.resource);
+        console.log('📡 res.resource.url:', res?.resource?.url);
+        
+        if (res?.resource?.url) {
+          const url = res.resource.url;
+          console.log(lesson.type === 0 ? '📹' : '📄', '获取到资源URL:', url);
+          setResourceUrl(url);
+        } else {
+          console.error('❌ 未获取到资源URL，resource为null或url为空');
+        }
+      } catch (error) {
+        console.error('❌ 获取课时详情失败:', error);
+      }
+    }
+  };
+
+  // 调试信息：查看当前选中课时的完整数据
+  console.log('📚 当前选中课时数据:', {
+    activeLesson,
+    type: activeLesson?.type,
+    isVideo,
+    isLive,
+    playbackUrl: activeLesson?.playbackUrl,
+    resourceUrl
+  });
 
   return (
     <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans">
@@ -133,34 +312,203 @@ export default function StudentLearning() {
                <p className="text-lg font-medium">该课程尚未添加任何课时</p>
              </div>
           ) : activeLesson ? (
-            isVideo ? (
-              activeLesson.playbackUrl ? (
+            isLive ? (
+              // 直播类型：使用 StudentLiveRoom 组件
+              <StudentLiveRoom hourData={activeLesson} />
+            ) : isVideo ? (
+              resourceUrl ? (
                 <video 
-                  src={activeLesson.playbackUrl} 
+                  ref={videoRef}
+                  src={resourceUrl} 
                   controls 
                   controlsList="nodownload"
                   autoPlay 
                   className="w-full h-full object-contain bg-black"
+                  onLoadedMetadata={async (e) => {
+                    // 🌟 断点续播：视频元数据加载完成后，获取历史进度并跳转
+                    await restoreProgress(e.target, id, activeLesson.id);
+                  }}
+                  onTimeUpdate={(e) => {
+                    // 🌟 定时同步进度（使用 lodash throttle 防抖）
+                    saveProgressThrottled(id, activeLesson.id, e.target.currentTime, e.target.duration);
+                  }}
+                  onEnded={(e) => {
+                    // 🌟 视频播放完毕，上报满分
+                    const duration = Math.round(e.target.duration || 100);
+                    reportProgress({
+                      courseId: parseInt(id, 10),
+                      hourId: activeLesson.id,
+                      resourceId: activeLesson.resourceId || null,
+                      totalDuration: duration,
+                      currentTime: duration
+                    }).then(() => {
+                      return checkCourseCompletion(id);
+                    }).then(res => {
+                      if (res) {
+                        console.log('✅ 视频播放完毕，进度已保存');
+                      }
+                    }).catch(err => {
+                      console.error('❌ 视频播放完毕上报失败:', err);
+                    });
+                  }}
+                  onPause={(e) => {
+                    // 🌟 离开页面保存：视频暂停时立即保存进度
+                    const current = e.target.currentTime;
+                    const total = e.target.duration || 100;
+                    saveProgressThrottled.flush?.(); // 刷新 throttle 队列，立即保存
+                    // 立即保存当前进度
+                    reportProgress({
+                      courseId: parseInt(id, 10),
+                      hourId: activeLesson.id,
+                      resourceId: activeLesson.resourceId || null,
+                      totalDuration: Math.round(total),
+                      currentTime: Math.round(current)
+                    }).catch(err => console.error('❌ 暂停保存进度失败:', err));
+                  }}
                 >
                   您的浏览器不支持播放该视频。
                 </video>
               ) : (
                 <div className="text-slate-400 flex flex-col items-center">
-                  <span className="material-symbols-outlined text-6xl mb-2 opacity-50">broken_image</span>
-                  <p>抱歉，未获取到视频播放地址</p>
+                  <span className="material-symbols-outlined text-6xl mb-2 opacity-50 animate-pulse">sync</span>
+                  <p>正在加载视频...</p>
+                </div>
+              )
+            ) : isDocument ? (
+              // 图文资料类型
+              resourceUrl ? (
+                <div className="w-full h-full overflow-auto bg-slate-100 p-4">
+                  <div className="flex justify-end mb-2">
+                    <button 
+                      onClick={async () => {
+                        // 伪造进度：点击下载时自动拉满
+                        try {
+                          await reportProgress({
+                            courseId: parseInt(id, 10),
+                            hourId: activeLesson.id,
+                            resourceId: activeLesson.resourceId || null,
+                            totalDuration: 100,
+                            currentTime: 100
+                          });
+                          console.log('✅ 文档进度已上报');
+                          // 上报成功后检查整体进度
+                          await checkCourseCompletion(id);
+                          console.log('✅ 课程整体进度已检查');
+                        } catch (error) {
+                          console.error('❌ 进度上报失败:', error);
+                        }
+                        // 触发浏览器下载
+                        const link = document.createElement('a');
+                        link.href = resourceUrl;
+                        link.download = activeLesson.name + '.' + (resourceUrl.split('.').pop() || 'docx');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">download</span>
+                      下载资料
+                    </button>
+                  </div>
+                  {resourceUrl.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? (
+                    <div className="flex justify-center">
+                      <img 
+                        src={resourceUrl} 
+                        alt={activeLesson.name}
+                        className="max-w-full h-auto rounded-lg shadow-lg cursor-pointer hover:opacity-90 transition-opacity"
+                        style={{ maxHeight: 'calc(100vh - 200px)' }}
+                        onClick={() => {
+                          // 查看图片时上报进度
+                          reportProgress({
+                            courseId: parseInt(id, 10),
+                            hourId: activeLesson.id,
+                            resourceId: activeLesson.resourceId || null,
+                            totalDuration: 100,
+                            currentTime: 100
+                          }).then(() => {
+                            return checkCourseCompletion(id);
+                          }).then(() => {
+                            console.log('✅ 图片进度已上报，课程整体进度已检查');
+                          }).catch(err => console.error('❌ 图片查看上报失败:', err));
+                        }}
+                      />
+                    </div>
+                  ) : resourceUrl.match(/\.(pdf)$/i) ? (
+                    <div className="w-full h-full flex flex-col">
+                      <iframe 
+                        src={resourceUrl} 
+                        className="flex-1 rounded-lg"
+                        style={{ minHeight: 'calc(100vh - 200px)' }}
+                        onLoad={() => {
+                          // PDF 加载完成时上报进度
+                          reportProgress({
+                            courseId: parseInt(id, 10),
+                            hourId: activeLesson.id,
+                            resourceId: activeLesson.resourceId || null,
+                            totalDuration: 100,
+                            currentTime: 100
+                          }).then(() => {
+                            return checkCourseCompletion(id);
+                          }).then(() => {
+                            console.log('✅ PDF进度已上报，课程整体进度已检查');
+                          }).catch(err => console.error('❌ PDF查看上报失败:', err));
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <span className="material-symbols-outlined text-6xl mb-4 text-blue-400">description</span>
+                      <p className="text-lg font-bold mb-4">{activeLesson.name}</p>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await reportProgress({
+                              courseId: parseInt(id, 10),
+                              hourId: activeLesson.id,
+                              resourceId: activeLesson.resourceId || null,
+                              totalDuration: 100,
+                              currentTime: 100
+                            });
+                            console.log('✅ 文档进度已上报');
+                            await checkCourseCompletion(id);
+                            console.log('✅ 课程整体进度已检查');
+                          } catch (error) {
+                            console.error('❌ 文档上报失败:', error);
+                          }
+                          // 执行下载
+                          const link = document.createElement('a');
+                          link.href = resourceUrl;
+                          const ext = resourceUrl.split('.').pop() || 'docx';
+                          link.download = (activeLesson.name || '文档') + '.' + ext;
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">download</span>
+                        点击下载文档
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-slate-400 flex flex-col items-center">
+                  <span className="material-symbols-outlined text-6xl mb-2 opacity-50 animate-pulse">sync</span>
+                  <p>正在加载资料...</p>
                 </div>
               )
             ) : (
               <div className="text-slate-300 flex flex-col items-center justify-center p-8 bg-slate-800 w-full h-full">
                  <span className="material-symbols-outlined text-6xl mb-4 text-blue-400">description</span>
-                 <p className="text-xl font-bold mb-2">图文资料：{activeLesson.name}</p>
-                 <p className="text-sm opacity-70">请在下方课件资料栏目查看详情或下载附件</p>
+                 <p className="text-xl font-bold mb-2">暂无资料内容</p>
               </div>
             )
           ) : null}
 
           {/* 视频右上角悬浮课时名称 */}
-          {activeLesson && isVideo && activeLesson.playbackUrl && (
+          {activeLesson && isVideo && resourceUrl && (
              <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 pointer-events-none">
                <span className="material-symbols-outlined text-[16px]">play_circle</span> {activeLesson.name}
              </div>
@@ -184,9 +532,100 @@ export default function StudentLearning() {
               </div>
             )}
             {activeTab === 'materials' && (
-              <div className="animate-in fade-in duration-300 py-10 flex flex-col items-center text-slate-400">
-                <span className="material-symbols-outlined text-5xl mb-2 opacity-30">folder_open</span>
-                <p className="text-sm">暂无附加下载资料</p>
+              <div className="animate-in fade-in duration-300">
+                <h3 className="font-bold text-slate-800 mb-4 text-lg">课件资料</h3>
+                {courseData.resources && courseData.resources.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {courseData.resources.map((resource, index) => {
+                      const isImage = resource.type?.match(/(jpg|jpeg|png|gif|bmp|webp)$/i) || 
+                                      resource.url?.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
+                      const isPdf = resource.type === 'pdf' || resource.url?.match(/\.pdf$/i);
+                      
+                      return (
+                        <div key={resource.id || index} className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                          {isImage ? (
+                            <div className="flex gap-4">
+                              <div className="w-20 h-20 bg-slate-100 rounded-lg overflow-hidden flex-shrink-0">
+                                <img 
+                                  src={resource.url} 
+                                  alt={resource.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-slate-800 truncate text-sm" title={resource.name}>
+                                  {resource.name}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {resource.size ? `${(resource.size / 1024).toFixed(1)} KB` : ''}
+                                </p>
+                                <a 
+                                  href={resource.url}
+                                  download={resource.name}
+                                  className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  <span className="material-symbols-outlined text-[14px]">download</span>
+                                  查看/下载
+                                </a>
+                              </div>
+                            </div>
+                          ) : isPdf ? (
+                            <div className="flex items-start gap-4">
+                              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <span className="material-symbols-outlined text-2xl text-red-500">picture_as_pdf</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-slate-800 truncate text-sm" title={resource.name}>
+                                  {resource.name}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {resource.size ? `${(resource.size / 1024).toFixed(1)} KB` : ''}
+                                </p>
+                                <a 
+                                  href={resource.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                  在线预览
+                                </a>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-4">
+                              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <span className="material-symbols-outlined text-2xl text-blue-500">description</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-slate-800 truncate text-sm" title={resource.name}>
+                                  {resource.name}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {resource.size ? `${(resource.size / 1024).toFixed(1)} KB` : ''}
+                                </p>
+                                <a 
+                                  href={resource.url}
+                                  download={resource.name}
+                                  className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  <span className="material-symbols-outlined text-[14px]">download</span>
+                                  下载
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-10 flex flex-col items-center text-slate-400">
+                    <span className="material-symbols-outlined text-5xl mb-2 opacity-30">folder_open</span>
+                    <p className="text-sm">暂无附加下载资料</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -230,17 +669,23 @@ export default function StudentLearning() {
                   {/* 🌟 修复：遍历 lessons 而不是 hours */}
                   {(chapter.lessons || []).map((lesson, lIdx) => {
                     const isPlaying = activeLesson?.id === lesson.id;
-                    const isVideoType = lesson.type === 1 || !!lesson.playbackUrl;
+                    const isVideoType = lesson.type === 0 || !!lesson.playbackUrl;
+                    const isLiveType = lesson.type === 2;
                     
                     return (
                       <div 
                         key={lesson.id || lIdx}
-                        onClick={() => setActiveLesson(lesson)}
+                        onClick={() => handleLessonSelect(lesson)}
                         className={`flex flex-col px-5 py-3 transition-colors cursor-pointer border-l-4 ${isPlaying ? 'bg-blue-50/50 border-blue-600' : 'border-transparent hover:bg-slate-50'}`}
                       >
                         <div className="flex items-start gap-3">
                           <div className="mt-0.5 shrink-0">
-                            {isPlaying 
+                            {isLiveType ? (
+                              // 直播类型图标
+                              isPlaying 
+                                ? <span className="material-symbols-outlined text-[18px] text-red-600 animate-pulse">live_tv</span>
+                                : <span className="material-symbols-outlined text-[18px] text-red-400">live_tv</span>
+                            ) : isPlaying 
                               ? <span className={`material-symbols-outlined text-[18px] text-blue-600 ${isVideoType ? 'animate-pulse' : ''}`}>{isVideoType ? 'play_circle' : 'description'}</span> 
                               : <span className="material-symbols-outlined text-[18px] text-slate-400">{isVideoType ? 'play_circle' : 'article'}</span>}
                           </div>

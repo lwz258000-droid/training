@@ -30,6 +30,7 @@ export default function TakeExam() {
 
       const qRes = await getUserExamQuestions(currentUid);
       const qList = qRes?.data || qRes || [];
+      console.log('📝 考试题目原始数据:', qList);
       // 题目排序
       qList.sort((a, b) => (a.sort || 0) - (b.sort || 0));
       setQuestions(qList);
@@ -93,7 +94,21 @@ export default function TakeExam() {
   };
 
   const parseOptions = (optionsStr) => {
-    try { return JSON.parse(optionsStr); } catch { return []; }
+    // 如果是字符串（JSON 格式），解析并转为选项数组
+    if (typeof optionsStr === 'string') {
+      try {
+        const obj = JSON.parse(optionsStr);
+        // 转换为 [{ label: 'A', text: '选项内容' }, ...] 格式
+        const result = [];
+        for (const [key, value] of Object.entries(obj)) {
+          result.push({ label: key, text: value });
+        }
+        return result;
+      } catch { return []; }
+    }
+    // 如果已经是数组，直接返回
+    if (Array.isArray(optionsStr)) return optionsStr;
+    return [];
   };
 
   // 🌟 优化的 Badge 组件
@@ -238,7 +253,7 @@ export default function TakeExam() {
                   // 🌟 客观题选项 (精美大卡片)
                   <div className="space-y-3.5">
                     {opts.map((opt, oIdx) => {
-                      const label = labels[oIdx] || '•';
+                      const label = opt.label || labels[oIdx] || '•';
                       let isChecked = false;
                       if (isMultiple) {
                         isChecked = Array.isArray(answers[q.questionId]) && answers[q.questionId].includes(label);
@@ -255,17 +270,14 @@ export default function TakeExam() {
                                 : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                         >
-                          {/* 优雅的选中指示器 */}
+                          {/*优雅的选中指示器 */}
                           <div className={`w-6 h-6 rounded flex items-center justify-center border-2 flex-shrink-0 transition-colors
                             ${isChecked 
                                 ? 'bg-blue-600 border-blue-600 text-white' 
                                 : 'border-slate-300 bg-white text-transparent'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[16px] font-black">{isMultiple ? 'check' : 'check_circle'}</span>
+                            }`}>
+                            <span className="text-xs font-black">{label}</span>
                           </div>
-                          
-                          {/* 隐藏的真实 Input */}
                           <input 
                             type={isMultiple ? "checkbox" : "radio"}
                             name={`question_${q.questionId}`}
@@ -273,9 +285,8 @@ export default function TakeExam() {
                             checked={isChecked}
                             onChange={() => handleAnswerChange(q.questionId, label, qType)}
                           />
-                          
                           <span className={`text-base font-black ${isChecked ? 'text-blue-700' : 'text-slate-500'}`}>{label}.</span>
-                          <span className={`text-base ${isChecked ? 'text-blue-900 font-medium' : 'text-slate-700 font-medium'}`}>{opt.option}</span>
+                          <span className={`text-base ${isChecked ? 'text-blue-900 font-medium' : 'text-slate-700 font-medium'}`}>{opt.text || opt.option || ''}</span>
                         </label>
                       );
                     })}

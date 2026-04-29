@@ -49,6 +49,26 @@ export default function ResourceManagement() {
     fetchCategories(); 
   }, []);
 
+  // ========== 文件类型格式化函数 ==========
+  const formatFileType = (mimeType) => {
+    if (!mimeType) return '未知';
+    const type = mimeType.toLowerCase();
+    
+    if (type.includes('wordprocessingml.document') || type.includes('msword')) return 'Word文档';
+    if (type.includes('spreadsheetml.sheet') || type.includes('excel') || type.includes('csv')) return 'Excel表格';
+    if (type.includes('presentationml.presentation') || type.includes('powerpoint')) return 'PPT幻灯片';
+    if (type.includes('pdf')) return 'PDF文档';
+    if (type.includes('image/')) return '图片';
+    if (type.includes('text/plain')) return 'TXT文本';
+    if (type.includes('zip') || type.includes('rar') || type.includes('7z')) return '压缩包';
+    if (type.includes('video/') || type.includes('mp4') || type.includes('avi') || type.includes('mov')) return '视频';
+    if (type.includes('audio/') || type.includes('mp3') || type.includes('wav')) return '音频';
+    
+    // 如果都不匹配，尝试返回文件扩展名
+    const ext = type.split('/')[1] || type;
+    return ext.toUpperCase() || '未知';
+  };
+
   useEffect(() => {
     fetchResources(pagination.current, pagination.size, queryName, selectedCategoryId);
     setSelectedResourceIds([]);
@@ -119,7 +139,11 @@ export default function ResourceManagement() {
         alert('删除成功');
         if (selectedCategoryId === id) setSelectedCategoryId(null);
         fetchCategories();
-      } catch (error) { alert('删除失败，该分类下可能还有素材或子分类'); }
+      } catch (error) {
+        const errorMsg = error?.msg || error?.message || String(error);
+        alert('删除失败！\n\n可能原因：该分类下还有素材或子分类\n\n详细错误：' + errorMsg);
+        console.error('删除分类错误:', error);
+      }
     }
   };
 
@@ -170,8 +194,22 @@ export default function ResourceManagement() {
       setPagination(p => ({...p, current: 1}));
 
     } catch (error) {
-      alert('文件上传失败，可能是网络中断或服务器限制了文件大小。');
-      console.error("上传错误信息:", error);
+      // 根据错误类型提供更详细的提示
+      const errorMessage = error.message || error.msg || String(error);
+      let hint = '';
+      
+      if (errorMessage.includes('413') || errorMessage.includes('文件大小') || errorMessage.includes('size')) {
+        hint = '\n\n可能原因：文件超过了服务器允许的大小限制（通常为1MB）';
+      } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+        hint = '\n\n可能原因：没有上传权限或Token已过期';
+      } else if (errorMessage.includes('404') || errorMessage.includes('Not Found')) {
+        hint = '\n\n可能原因：上传接口不存在，请检查后端路由配置';
+      } else if (errorMessage.includes('网络断开') || errorMessage.includes('Network')) {
+        hint = '\n\n可能原因：网络连接不稳定，请检查网络';
+      }
+      
+      alert('文件上传失败！' + hint + '\n\n详细错误：' + errorMessage);
+      console.error('上传错误信息:', error);
     } finally {
       setUploading(false);
       setUploadPercent(0); 
@@ -220,7 +258,11 @@ export default function ResourceManagement() {
         await deleteResource(id);
         alert('删除成功');
         fetchResources(pagination.current, pagination.size, queryName, selectedCategoryId);
-      } catch (error) { alert('删除失败'); }
+      } catch (error) {
+        const errorMsg = error?.msg || error?.message || String(error);
+        alert('删除失败！\n\n错误信息：' + errorMsg);
+        console.error('删除资源错误:', error);
+      }
     }
   };
 
@@ -399,7 +441,7 @@ export default function ResourceManagement() {
 
                     <td className="px-6 py-4 whitespace-nowrap">
                        <div className="flex flex-col gap-1">
-                         <span className="text-xs font-semibold uppercase text-slate-700">{res.type || 'UNKNOWN'}</span>
+                         <span className="text-xs font-semibold uppercase text-slate-700">{formatFileType(res.type)}</span>
                          <span className="text-xs text-slate-500">{formatBytes(res.size)}</span>
                        </div>
                     </td>
@@ -576,7 +618,11 @@ export default function ResourceManagement() {
                     <div className="flex flex-col items-center animate-in fade-in duration-300 w-full">
                       <div className="w-16 h-16 bg-white shadow-sm border border-slate-100 rounded-2xl flex items-center justify-center mb-4 text-blue-600"><span className="material-symbols-outlined text-4xl">description</span></div>
                       <p className="text-slate-800 font-bold truncate w-full max-w-[280px]" title={uploadData.file.name}>{uploadData.file.name}</p>
-                      <p className="text-slate-500 text-sm mt-1">{formatBytes(uploadData.file.size)}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-slate-500 text-sm">{formatFileType(uploadData.file.type)}</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-500 text-sm">{formatBytes(uploadData.file.size)}</span>
+                      </div>
                       
                       {/* 🌟 上传过程中的精美进度条 */}
                       {uploading ? (

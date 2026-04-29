@@ -2,10 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   getStudentInfo, 
-  getStudentProgressStats, 
-  getStudentCourseList, 
   getStudentMyCourses, 
-  enrollCourse 
+  enrollCourse, 
+  checkCourseCompletion 
 } from '../../../api/student'; 
 
 export default function StudentDashboard() {
@@ -25,43 +24,59 @@ export default function StudentDashboard() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [infoRes, statsRes, myRes, allRes] = await Promise.all([
+      const [infoRes, myRes] = await Promise.all([
         getStudentInfo().catch(() => null),
-        getStudentProgressStats().catch(() => null),
-        getStudentMyCourses().catch(() => null),
-        getStudentCourseList().catch(() => null)
+        getStudentMyCourses().catch(() => null)
       ]);
 
       if (infoRes) setUserInfo(infoRes?.data || infoRes);
 
-      if (statsRes) {
-        const statsData = statsRes?.data || statsRes;
-        setStats({
-          total: statsData.totalCourses ?? statsData.total ?? 0,
-          learning: statsData.learningCourses ?? statsData.learning ?? 0,
-          completed: statsData.completedCourses ?? statsData.completed ?? 0
-        });
-      }
-
       let enrolledIds = []; 
       
-      // 1. 处理“我的课程”数据
+      // 1. 处理"我的课程"数据
       if (myRes) {
         // 兼容带分页或不带分页的数据结构
         const list = Array.isArray(myRes) ? myRes : (myRes?.data?.records || myRes?.records || myRes?.data || []);
-        const formattedMy = list.map(c => ({
-          // 🌟 核心修复 1：优先读取 courseId，做无敌兼容
-          id: c.courseId || c.id, 
-          title: c.title || c.name || '未命名课程',
-          isRequired: c.isRequired, 
-          category: c.isRequired === 1 ? '必修课' : '选修课', 
-          cover: c.thumb || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
-          progress: c.progress || 0, 
-          totalLessons: c.creditHours || 0,
-          status: (c.progress && c.progress === 100) ? 'completed' : 'learning' 
+        
+        // 🌟 对每个课程获取真实进度
+        const formattedMyProgress = await Promise.all(list.map(async (c) => {
+          let progress = c.learningStatus || 0;
+          // 尝试获取真实进度（拦截器已解包data，直接用progressRes）
+          try {
+            const pData = await checkCourseCompletion(c.courseId || c.id);
+            console.log(`📊 课程 "${c.name}" 进度数据:`, pData);
+            if (pData && typeof pData === 'object') {
+              if (pData.totalHours && pData.finishedHours !== undefined) {
+                progress = Math.round((pData.finishedHours / pData.totalHours) * 100);
+                console.log(`📊 课程 "${c.name}" 计算进度:`, progress);
+              }
+            }
+          } catch (e) {
+            console.warn('获取课程进度失败:', c.name || c.title, e);
+          }
+          
+          return {
+            id: c.courseId || c.id,
+            name: c.name || c.title || '未命名课程',
+            title: c.name || c.title || '未命名课程',
+            isRequired: c.isRequired,
+            category: c.isRequired === 1 ? '必修课' : '选修课',
+            cover: c.thumb || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800',
+            progress: progress,
+            totalLessons: c.creditHours || 0,
+            status: progress === 100 ? 'completed' : 'learning'
+          };
         }));
-        setMyCourses(formattedMy);
-        enrolledIds = formattedMy.map(c => c.id);
+        
+        console.log('📚 我的课程（含进度）:', formattedMyProgress);
+        setMyCourses(formattedMyProgress);
+        enrolledIds = formattedMyProgress.map(c => c.id);
+        
+        // 🌟 根据课程列表计算统计数据
+        const total = formattedMyProgress.length;
+        const learning = formattedMyProgress.filter(c => c.progress > 0 && c.progress < 100).length;
+        const completed = formattedMyProgress.filter(c => c.progress === 100).length;
+        setStats({ total, learning, completed });
       }
 
       // 2. 处理“选课大厅”数据
@@ -203,7 +218,7 @@ export default function StudentDashboard() {
               </div>
 
               <div className="p-5 flex-1 flex flex-col">
-                <h3 className="font-bold text-slate-800 text-base leading-snug line-clamp-2 mb-4 group-hover:text-blue-600 transition-colors">{course.title}</h3>
+                <h3 className="font-bold text-slate-800 text-base leading-snug line-clamp-2 mb-4 group-hover:text-blue-600 transition-colors">{course.name || course.title || '未命名课程'}</h3>
                 
                 {activeTab !== 'explore' && (
                   <div className="mt-auto">

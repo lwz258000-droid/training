@@ -23,7 +23,6 @@ import Organization from '../pages/Admin/Organization/index.jsx';
 import Dashboard from '../pages/Admin/Dashboard/index.jsx';
 import CourseList from '../pages/Admin/Courses/List/index.jsx';
 import QuestionBank from '../pages/Admin/Courses/List/Questions.jsx'; 
-import Papers from '../pages/Admin/Courses/List/Papers.jsx'; 
 // 🌟 引入管理员端的考试管理
 import ExamsManagement from '../pages/Admin/Courses/List/Exams.jsx';
 import Resources from '../pages/Admin/Resources/index.jsx';
@@ -31,6 +30,10 @@ import SystemManagement from '../pages/Admin/System/index.jsx';
 import Department from '../pages/Admin/System/Department.jsx';
 import CourseCategory from '../pages/Admin/Courses/Category/index.jsx';
 import CourseBuild from '../pages/Admin/Courses/Build/index.jsx';
+
+// 🌟 引入直播页面
+import AdminLiveRoom from '../pages/Admin/LiveRoom/AdminLiveRoom.jsx';
+import StudentLivePage from '../pages/Student/Learning/StudentLivePage.jsx';
 
 // 临时兜底组件
 const FallbackPage = ({ title }) => (
@@ -70,6 +73,17 @@ const router = createBrowserRouter([
     path: '/student/exams/take/:examId', 
     element: <TakeExam /> 
   },
+  // 🌟 学员直播观看页面
+  {
+    path: '/student/live/:hourId',
+    element: <StudentLivePage />
+  },
+  
+  // 🌟 讲师直播页面（管理员全屏直播）
+  {
+    path: '/admin/live/:hourId',
+    element: <AdminLiveRoom />
+  },
   
   // ==========================================
   // 4. 学员端内部路由 (带 StudentLayout 侧边栏布局)
@@ -102,7 +116,6 @@ const router = createBrowserRouter([
       // 课程列表与管理
       { path: 'courses', element: <CourseList /> }, 
       { path: 'courses/questions/:courseId', element: <QuestionBank /> },
-      { path: 'courses/papers/:courseId', element: <Papers /> },
       { path: 'courses/exams/:courseId', element: <ExamsManagement /> },
       { path: 'course-category', element: <CourseCategory /> },
       { path: 'courses/build/:id', element: <CourseBuild /> },

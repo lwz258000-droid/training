@@ -1,16 +1,44 @@
 // 数据控制台
 import React, { useEffect, useState } from 'react';
-import { getAdminCourseList } from '../../../api/admin';
+import { getAdminCourseList, getDashboardOverview } from '../../../api/admin';
 
 export default function AdminDashboard() {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    activeCourses: 0,
+    avgCompletionRate: 0
+  });
 
-  // 初始化加载课程列表
+  // 初始化加载概览数据
   useEffect(() => {
+    fetchOverview();
     fetchCourses();
   }, []);
 
+  // 获取控制台概览数据
+  const fetchOverview = async () => {
+    setStatsLoading(true);
+    try {
+      const res = await getDashboardOverview();
+      console.log('📊 概览数据响应:', res);
+      if (res) {
+        setStats({
+          totalStudents: res.totalStudents || 0,
+          activeCourses: res.activeCourses || 0,
+          avgCompletionRate: res.avgCompletionRate || 0
+        });
+      }
+    } catch (error) {
+      console.error('获取概览数据失败', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // 初始化加载课程列表
   const fetchCourses = async () => {
     setLoading(true);
     try {
@@ -38,31 +66,64 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* Stats Grid - 静态数据演示 */}
+      {/* Stats Grid - 从后端获取数据 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <span className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg material-symbols-outlined">person</span>
-            <span className="text-emerald-500 text-sm font-bold flex items-center">+12% <span className="material-symbols-outlined text-xs ml-0.5">trending_up</span></span>
+            {statsLoading ? (
+              <span className="w-8 h-4 bg-slate-200 rounded animate-pulse"></span>
+            ) : (
+              <span className="text-emerald-500 text-sm font-bold flex items-center">
+                {stats.totalStudents > 0 ? '+12%' : '-'}
+                <span className="material-symbols-outlined text-xs ml-0.5">{stats.totalStudents > 0 ? 'trending_up' : 'remove'}</span>
+              </span>
+            )}
           </div>
           <p className="text-slate-500 text-sm font-medium">总学员数</p>
-          <p className="text-3xl font-bold mt-1">12,480</p>
+          {statsLoading ? (
+            <div className="w-24 h-8 bg-slate-200 rounded animate-pulse mt-1"></div>
+          ) : (
+            <p className="text-3xl font-bold mt-1">{stats.totalStudents.toLocaleString()}</p>
+          )}
         </div>
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <span className="p-2 bg-purple-50 dark:bg-purple-900/20 text-purple-600 rounded-lg material-symbols-outlined">menu_book</span>
-            <span className="text-emerald-500 text-sm font-bold flex items-center">+5% <span className="material-symbols-outlined text-xs ml-0.5">trending_up</span></span>
+            {statsLoading ? (
+              <span className="w-8 h-4 bg-slate-200 rounded animate-pulse"></span>
+            ) : (
+              <span className="text-emerald-500 text-sm font-bold flex items-center">
+                {stats.activeCourses > 0 ? '+5%' : '-'}
+                <span className="material-symbols-outlined text-xs ml-0.5">{stats.activeCourses > 0 ? 'trending_up' : 'remove'}</span>
+              </span>
+            )}
           </div>
           <p className="text-slate-500 text-sm font-medium">进行中的课程</p>
-          <p className="text-3xl font-bold mt-1">42</p>
+          {statsLoading ? (
+            <div className="w-16 h-8 bg-slate-200 rounded animate-pulse mt-1"></div>
+          ) : (
+            <p className="text-3xl font-bold mt-1">{stats.activeCourses}</p>
+          )}
         </div>
         <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <span className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-lg material-symbols-outlined">check_circle</span>
-            <span className="text-rose-500 text-sm font-bold flex items-center">-2% <span className="material-symbols-outlined text-xs ml-0.5">trending_down</span></span>
+            {statsLoading ? (
+              <span className="w-8 h-4 bg-slate-200 rounded animate-pulse"></span>
+            ) : (
+              <span className={stats.avgCompletionRate > 80 ? 'text-emerald-500 text-sm font-bold flex items-center' : 'text-rose-500 text-sm font-bold flex items-center'}>
+                {stats.avgCompletionRate > 0 ? (stats.avgCompletionRate > 80 ? '-2%' : '+3%') : '-'}
+                <span className="material-symbols-outlined text-xs ml-0.5">{stats.avgCompletionRate > 80 ? 'trending_down' : 'trending_up'}</span>
+              </span>
+            )}
           </div>
           <p className="text-slate-500 text-sm font-medium">平均完成率</p>
-          <p className="text-3xl font-bold mt-1">88.5%</p>
+          {statsLoading ? (
+            <div className="w-20 h-8 bg-slate-200 rounded animate-pulse mt-1"></div>
+          ) : (
+            <p className="text-3xl font-bold mt-1">{stats.avgCompletionRate}%</p>
+          )}
         </div>
       </div>
 

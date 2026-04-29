@@ -31,7 +31,8 @@ export const uploadResource = (file, onUploadProgress) => {
     // 🌟 启用原生 XMLHttpRequest，彻底抛弃 Axios 的请求头干扰
     const xhr = new XMLHttpRequest();
     // 拼接 /api 前缀，让 vite proxy 继续正常拦截转发
-    xhr.open('POST', '/api/upload', true);
+    // 素材上传使用 /upload/course 路径
+    xhr.open('POST', '/api/upload/course', true);
     
     // 手动附带鉴权信息
     if (token) {

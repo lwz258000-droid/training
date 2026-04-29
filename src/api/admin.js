@@ -42,3 +42,8 @@ export const getDepartmentTree = () => {
   return request.get('/backend/department/tree');
 };
 
+// 🌟 新增：获取控制台概览数据
+export const getDashboardOverview = () => {
+  return request.get('/backend/dashboard/overview');
+};
+

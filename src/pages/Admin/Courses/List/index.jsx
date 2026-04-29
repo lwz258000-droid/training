@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom'; 
 import { 
   getCourseCategoryTree, 
@@ -11,7 +11,11 @@ import {
   updateCourse, 
   deleteCourse,
   updateCourseStatus,
-  publishAssignment // 🌟 这里只引入你确认已有的真实接口
+  publishAssignment,
+  getAssignmentList,
+  getAssignmentSubmissions,
+  gradeAssignmentSubmission,
+  uploadFile
 } from '../../../../api/course';
 
 export default function CourseList() {
@@ -40,8 +44,21 @@ export default function CourseList() {
 
   // 🌟 3. 发布作业状态 (点击表格行内[作业]按钮打开)
   const [assignmentModal, setAssignmentModal] = useState({ isOpen: false, courseId: null, courseName: '' });
-  const [assignFormData, setAssignFormData] = useState({ title: '', content: '', attachmentUrl: '', deadline: '' });
+  const [assignFormData, setAssignFormData] = useState({ title: '', content: '', attachmentUrl: '', attachmentName: '', deadline: '' });
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [assignmentList, setAssignmentList] = useState([]);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
+  const [assignmentTab, setAssignmentTab] = useState('list'); // 'list' | 'publish'
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [submissions, setSubmissions] = useState([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [gradeModal, setGradeModal] = useState({ isOpen: false, submission: null });
+  const [gradeFormData, setGradeFormData] = useState({ score: '', comment: '' });
+  const [gradingSubmitting, setGradingSubmitting] = useState(false);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [attachmentProgress, setAttachmentProgress] = useState(0);
+  const [attachmentFile, setAttachmentFile] = useState(null);
+  const assignmentFileInputRef = useRef(null);
 
   // 🌟 4. 考试操作中枢弹窗状态 (点击表格行内[考试]按钮打开)
   const [examHubModal, setExamHubModal] = useState({ isOpen: false, courseId: null, courseName: '' });
@@ -57,6 +74,13 @@ export default function CourseList() {
   useEffect(() => {
     fetchCourses(pagination.current, pagination.size, queryKeyword, selectedCategoryId);
   }, [pagination.current, pagination.size, queryKeyword, selectedCategoryId]);
+
+  // 🌟 当作业弹窗打开时，获取作业列表
+  useEffect(() => {
+    if (assignmentModal.isOpen && assignmentModal.courseId) {
+      fetchAssignmentList(assignmentModal.courseId);
+    }
+  }, [assignmentModal.isOpen, assignmentModal.courseId]);
 
   const fetchCategories = async () => {
     try {
@@ -188,8 +212,49 @@ export default function CourseList() {
       else { await createCourse(payload); alert('新课程创建成功！'); }
       setIsModalOpen(false);
       fetchCourses(pagination.current, pagination.size, queryKeyword, selectedCategoryId);
-    } catch (error) { alert('保存失败，请检查数据格式是否正确'); } 
-    finally { setSubmitting(false); }
+    } catch (error) { alert('保存失败，请检查数据格式是否正确'); } finally { setSubmitting(false); }
+  };
+
+  // 🌟 --- 作业附件上传处理 ---
+  const handleAssignmentFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setAttachmentUploading(true);
+    setAttachmentProgress(0);
+    setAttachmentFile(file);
+
+    try {
+      const result = await uploadFile(file, 'assignment', (percent) => {
+        setAttachmentProgress(percent);
+      });
+      
+      console.log('📎 附件上传成功:', result);
+      setAssignFormData(prev => ({
+        ...prev,
+        attachmentUrl: result.url || result.path || '',
+        attachmentName: file.name
+      }));
+      alert('附件上传成功！');
+    } catch (error) {
+      console.error('附件上传失败:', error);
+      alert('附件上传失败：' + error.message);
+      setAttachmentFile(null);
+    } finally {
+      setAttachmentUploading(false);
+      setAttachmentProgress(0);
+      if (assignmentFileInputRef.current) {
+        assignmentFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setAssignFormData(prev => ({ ...prev, attachmentUrl: '', attachmentName: '' }));
+    setAttachmentFile(null);
+    if (assignmentFileInputRef.current) {
+      assignmentFileInputRef.current.value = '';
+    }
   };
 
   // 🌟 --- 发布作业逻辑 ---
@@ -210,11 +275,80 @@ export default function CourseList() {
 
       await publishAssignment(payload); // 真实接口
       alert('作业发布成功！');
-      setAssignmentModal({ isOpen: false, courseId: null, courseName: '' });
+      setAssignFormData({ title: '', content: '', attachmentUrl: '', attachmentName: '', deadline: '' });
+      setAttachmentFile(null);
+      // 刷新作业列表
+      fetchAssignmentList(assignmentModal.courseId);
     } catch (error) {
       alert('作业发布失败，请检查网络或时间格式');
     } finally {
       setAssignSubmitting(false);
+    }
+  };
+
+  // 🌟 获取课程作业列表
+  const fetchAssignmentList = async (courseId) => {
+    setAssignmentLoading(true);
+    try {
+      const res = await getAssignmentList(courseId);
+      const assignmentsData = Array.isArray(res) ? res : (res?.data || res?.list || []);
+      setAssignmentList(assignmentsData);
+    } catch (error) {
+      console.error('获取作业列表失败', error);
+      setAssignmentList([]);
+    } finally {
+      setAssignmentLoading(false);
+    }
+  };
+
+  // 🌟 获取作业提交列表
+  const fetchSubmissions = async (assignmentId) => {
+    setSubmissionsLoading(true);
+    try {
+      const res = await getAssignmentSubmissions(assignmentId);
+      const submissionsData = Array.isArray(res) ? res : (res?.data || res?.list || []);
+      setSubmissions(submissionsData);
+    } catch (error) {
+      console.error('获取提交列表失败', error);
+      setSubmissions([]);
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  };
+
+  // 🌟 打开批改弹窗
+  const openGradeModal = (submission) => {
+    setGradeModal({ isOpen: true, submission });
+    setGradeFormData({ score: submission.score || '', comment: submission.comment || '' });
+  };
+
+  // 🌟 提交批改
+  const handleGradeSubmit = async (e) => {
+    e.preventDefault();
+    if (!gradeFormData.score) return alert('请输入分数！');
+    
+    const submissionId = gradeModal.submission?.id || gradeModal.submission?.submissionId;
+    if (!submissionId) {
+      alert('无法获取提交记录ID，请刷新页面重试');
+      return;
+    }
+    
+    setGradingSubmitting(true);
+    try {
+      await gradeAssignmentSubmission({
+        submissionId: submissionId,
+        score: Number(gradeFormData.score),
+        comment: gradeFormData.comment || ''
+      });
+      alert('批改成功！');
+      setGradeModal({ isOpen: false, submission: null });
+      if (selectedAssignment) {
+        fetchSubmissions(selectedAssignment.id);
+      }
+    } catch (error) {
+      alert('批改失败：' + (error?.msg || error?.message || '请重试'));
+    } finally {
+      setGradingSubmitting(false);
     }
   };
 
@@ -326,7 +460,7 @@ export default function CourseList() {
                       
                       {/* 🌟 核心拆分：[作业] 按钮和 [考试] 按钮 */}
                       <button 
-                        onClick={() => { setAssignmentModal({ isOpen: true, courseId: course.id, courseName: course.name }); setAssignFormData({ title: '', content: '', attachmentUrl: '', deadline: '' }); }} 
+                        onClick={() => { setAssignmentModal({ isOpen: true, courseId: course.id, courseName: course.name }); setAssignFormData({ title: '', content: '', attachmentUrl: '', attachmentName: '', deadline: '' }); setAttachmentFile(null); setAssignmentTab('list'); }} 
                         className="text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded text-xs transition-colors shadow-sm"
                       >
                         作业
@@ -463,51 +597,274 @@ export default function CourseList() {
         </div>
       )}
 
-      {/* 🌟 3. 发布作业表单弹窗 (保留你指定的 4 个核心字段) */}
+      {/* 🌟 3. 作业管理弹窗 (增强版：作业列表 + 发布作业) */}
       {assignmentModal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" style={{ maxHeight: '90vh' }}>
             <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrinking-0">
-              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><span className="material-symbols-outlined text-indigo-500">assignment_add</span>发布课程作业</h3>
-              <button onClick={() => setAssignmentModal({ isOpen: false, courseId: null, courseName: '' })} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full"><span className="material-symbols-outlined">close</span></button>
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2"><span className="material-symbols-outlined text-indigo-500">assignment</span>作业管理</h3>
+              <button onClick={() => { setAssignmentModal({ isOpen: false, courseId: null, courseName: '' }); setSelectedAssignment(null); setSubmissions([]); }} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full"><span className="material-symbols-outlined">close</span></button>
             </div>
-            <form onSubmit={handleAssignSubmit} className="flex flex-col overflow-hidden">
-              <div className="p-5 space-y-4 overflow-y-auto flex-1">
-                <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-2.5 rounded-lg text-sm flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[18px] mt-0.5">info</span>
-                  <div>正在为课程 <strong>《{assignmentModal.courseName}》</strong> 发布全局作业。学员将在课程主页查看到此作业。</div>
-                </div>
-                
-                {/* 字段 1：作业标题 */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">作业标题 <span className="text-red-500">*</span></label>
-                  <input required autoFocus type="text" value={assignFormData.title} onChange={e => setAssignFormData({...assignFormData, title: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="例如: 期末结课大作业" />
-                </div>
-                
-                {/* 字段 2：作业内容说明 */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">作业内容说明</label>
-                  <textarea rows="4" value={assignFormData.content} onChange={e => setAssignFormData({...assignFormData, content: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="请详细描述作业要求、评分标准等..." />
-                </div>
-                
-                {/* 字段 3：附件 URL */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">附件 URL (选填)</label>
-                  <input type="text" value={assignFormData.attachmentUrl} onChange={e => setAssignFormData({...assignFormData, attachmentUrl: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="如果有参考资料、多媒体素材可填入链接" />
-                </div>
-                
-                {/* 字段 4：提交截止时间 */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">提交截止时间 <span className="text-red-500">*</span></label>
-                  <input required type="datetime-local" value={assignFormData.deadline} onChange={e => setAssignFormData({...assignFormData, deadline: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                </div>
-
+            
+            {/* 🌟 标签切换 */}
+            <div className="px-5 border-b border-slate-200 bg-white shrinking-0">
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => setAssignmentTab('list')}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${assignmentTab === 'list' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                >
+                  作业列表
+                </button>
+                <button 
+                  onClick={() => setAssignmentTab('publish')}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${assignmentTab === 'publish' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                >
+                  发布作业
+                </button>
               </div>
-              <div className="px-5 py-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 shrink-0">
-                <button type="button" onClick={() => setAssignmentModal({ isOpen: false, courseId: null, courseName: '' })} className="px-5 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors">取消</button>
-                <button type="submit" disabled={assignSubmitting} className="px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 shadow-sm transition-colors flex items-center gap-1.5">
-                  {assignSubmitting ? <span className="material-symbols-outlined animate-spin text-sm">sync</span> : null}
-                  {assignSubmitting ? '发布中...' : '确认发布'}
+            </div>
+            
+            {/* 🌟 内容区域 */}
+            <div className="flex-1 overflow-y-auto p-5">
+              
+              {/* === 作业列表视图 === */}
+              {assignmentTab === 'list' && !selectedAssignment && (
+                <div>
+                  {assignmentLoading ? (
+                    <div className="flex items-center justify-center py-20">
+                      <span className="material-symbols-outlined animate-spin text-3xl text-indigo-500">sync</span>
+                      <span className="ml-3 text-slate-500">加载作业列表...</span>
+                    </div>
+                  ) : assignmentList.length === 0 ? (
+                    <div className="text-center py-20 text-slate-400">
+                      <span className="material-symbols-outlined text-5xl mb-3">assignment</span>
+                      <p>暂无作业，点击"发布作业"创建新作业</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {assignmentList.map((assignment, index) => (
+                        <div key={assignment.id || `assignment-${index}`} className="border border-slate-200 rounded-xl p-4 hover:border-indigo-300 hover:shadow-sm transition-all">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-slate-800">{assignment.title}</h4>
+                              <p className="text-sm text-slate-500 mt-1 line-clamp-2">{assignment.content || '无详细说明'}</p>
+                              <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
+                                <span>截止：{new Date(assignment.deadline).toLocaleString()}</span>
+                                {assignment.attachmentUrl && (
+                                  <a href={assignment.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-[12px]">attach_file</span>
+                                    有附件
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => { setSelectedAssignment(assignment); fetchSubmissions(assignment.id); }}
+                              className="ml-4 px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                            >
+                              查看提交
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* === 查看提交视图 === */}
+              {assignmentTab === 'list' && selectedAssignment && (
+                <div>
+                  <button 
+                    onClick={() => setSelectedAssignment(null)}
+                    className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-4"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                    返回作业列表
+                  </button>
+                  
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4 mb-4">
+                    <h4 className="font-bold text-slate-800">{selectedAssignment.title}</h4>
+                    <p className="text-sm text-slate-600 mt-1">提交列表</p>
+                  </div>
+                  
+                  {submissionsLoading ? (
+                    <div className="flex items-center justify-center py-10">
+                      <span className="material-symbols-outlined animate-spin text-2xl text-indigo-500">sync</span>
+                      <span className="ml-2 text-slate-500">加载提交列表...</span>
+                    </div>
+                  ) : submissions.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400">
+                      <span className="material-symbols-outlined text-4xl mb-2">inbox</span>
+                      <p>暂无学员提交</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {submissions.map((submission, index) => (
+                        <div key={submission.id || submission.submissionId || `submission-${index}`} className="border border-slate-200 rounded-xl p-4 hover:border-indigo-200 transition-colors">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <h5 className="font-bold text-slate-800">{submission.studentName || submission.userName || '学员'}</h5>
+                                <span className={`px-2 py-0.5 text-xs rounded-full ${submission.status === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {submission.status === 1 ? `已批改: ${submission.score}分` : '待批改'}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-600 mt-1 line-clamp-2">{submission.content || '无提交内容'}</p>
+                              <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
+                                <span>提交时间：{submission.submitTime ? new Date(submission.submitTime).toLocaleString() : '未知'}</span>
+                                {submission.attachmentUrl && (
+                                  <a href={submission.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-[12px]">attach_file</span>
+                                    查看附件
+                                  </a>
+                                )}
+                              </div>
+                              {submission.comment && (
+                                <div className="mt-2 p-2 bg-slate-50 rounded text-sm text-slate-600">
+                                  <strong>评语：</strong>{submission.comment}
+                                </div>
+                              )}
+                            </div>
+                            <button 
+                              onClick={() => openGradeModal(submission)}
+                              className={`ml-4 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${submission.status === 1 ? 'bg-slate-100 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                            >
+                              {submission.status === 1 ? '重新批改' : '批改'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* === 发布作业视图 === */}
+              {assignmentTab === 'publish' && (
+                <form onSubmit={handleAssignSubmit} className="space-y-4">
+                  <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-2.5 rounded-lg text-sm flex items-start gap-2">
+                    <span className="material-symbols-outlined text-[18px] mt-0.5">info</span>
+                    <div>正在为课程 <strong>《{assignmentModal.courseName}》</strong> 发布作业</div>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">作业标题 <span className="text-red-500">*</span></label>
+                    <input required type="text" value={assignFormData.title} onChange={e => setAssignFormData({...assignFormData, title: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="例如: 期末结课大作业" />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">作业内容说明</label>
+                    <textarea rows="4" value={assignFormData.content} onChange={e => setAssignFormData({...assignFormData, content: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="请详细描述作业要求、评分标准等..." />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">附件上传 (选填)</label>
+                    <input 
+                      type="file" 
+                      ref={assignmentFileInputRef}
+                      accept=".doc,.docx,.pdf,.jpg,.jpeg,.png,.gif,.ppt,.pptx,.xls,.xlsx,.zip,.rar"
+                      onChange={handleAssignmentFileChange}
+                      disabled={attachmentUploading}
+                      className="hidden"
+                    />
+                    {assignFormData.attachmentUrl ? (
+                      <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="material-symbols-outlined text-indigo-500">attach_file</span>
+                            <span className="text-sm text-slate-700 truncate" title={assignFormData.attachmentName || '已上传文件'}>
+                              {assignFormData.attachmentName || '已上传文件'}
+                            </span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={handleRemoveAttachment}
+                            className="text-slate-400 hover:text-red-500 p-1"
+                          >
+                            <span className="material-symbols-outlined text-lg">close</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : attachmentUploading ? (
+                      <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <div className="flex items-center gap-3">
+                          <span className="material-symbols-outlined text-indigo-500 animate-spin">sync</span>
+                          <div className="flex-1">
+                            <div className="text-sm text-slate-600 mb-1">上传中...</div>
+                            <div className="w-full bg-slate-200 rounded-full h-2">
+                              <div 
+                                className="bg-indigo-500 h-2 rounded-full transition-all duration-300" 
+                                style={{ width: `${attachmentProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                          <span className="text-sm text-slate-500">{attachmentProgress}%</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => assignmentFileInputRef.current?.click()}
+                        className="w-full border-2 border-dashed border-slate-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-3xl text-slate-400 mb-1">cloud_upload</span>
+                        <p className="text-sm text-slate-500">点击上传附件</p>
+                        <p className="text-xs text-slate-400 mt-1">支持 Word、PDF、图片、PPT、Excel、压缩包</p>
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-700">提交截止时间 <span className="text-red-500">*</span></label>
+                    <input required type="datetime-local" value={assignFormData.deadline} onChange={e => setAssignFormData({...assignFormData, deadline: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button type="submit" disabled={assignSubmitting} className="px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 shadow-sm transition-colors flex items-center gap-1.5">
+                      {assignSubmitting ? <span className="material-symbols-outlined animate-spin text-sm">sync</span> : null}
+                      {assignSubmitting ? '发布中...' : '确认发布'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 🌟 批改作业弹窗 */}
+      {gradeModal.isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span className="material-symbols-outlined text-indigo-500">grade</span>
+                批改作业
+              </h3>
+            </div>
+            
+            <form onSubmit={handleGradeSubmit} className="p-5 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <p className="text-sm text-slate-600"><strong>学员：</strong>{gradeModal.submission?.studentName || gradeModal.submission?.userName || '未知'}</p>
+                <p className="text-sm text-slate-600 mt-1"><strong>提交内容：</strong>{gradeModal.submission?.content || '无'}</p>
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">分数 <span className="text-red-500">*</span></label>
+                <input required type="number" min="0" max="100" value={gradeFormData.score} onChange={e => setGradeFormData({...gradeFormData, score: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="请输入 0-100 的分数" />
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">评语</label>
+                <textarea rows="3" value={gradeFormData.comment} onChange={e => setGradeFormData({...gradeFormData, comment: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="输入评语或指导建议..." />
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setGradeModal({ isOpen: false, submission: null })} className="px-5 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors">取消</button>
+                <button type="submit" disabled={gradingSubmitting} className="px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 shadow-sm transition-colors flex items-center gap-1.5">
+                  {gradingSubmitting ? <span className="material-symbols-outlined animate-spin text-sm">sync</span> : null}
+                  {gradingSubmitting ? '提交中...' : '确认批改'}
                 </button>
               </div>
             </form>
@@ -531,55 +888,75 @@ export default function CourseList() {
               </button>
             </div>
             
-            <div className="p-6 bg-slate-50/30 overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="p-8 bg-gradient-to-br from-slate-50 to-slate-100 overflow-y-auto flex-1">
+              
+              {/* 功能卡片区域 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
                 
                 {/* 模块1：题库管理 */}
                 <div 
                   onClick={() => {
                     setExamHubModal({ isOpen: false, courseId: null, courseName: '' });
-                    navigate(`/admin/courses/questions/${examHubModal.courseId}`); // ⚠️ 注意路由路径
+                    navigate(`/admin/courses/questions/${examHubModal.courseId}`);
                   }}
-                  className="bg-white border border-slate-200 hover:border-blue-400 hover:shadow-md p-6 rounded-xl cursor-pointer transition-all flex flex-col items-center justify-center text-center group"
+                  className="group relative bg-white border-2 border-slate-100 hover:border-blue-300 hover:shadow-xl p-8 rounded-2xl cursor-pointer transition-all duration-300 overflow-hidden"
                 >
-                  <div className="w-14 h-14 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined text-[28px]">dataset</span>
+                  {/* 背景装饰 */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-transparent rounded-bl-[100px] opacity-60 group-hover:opacity-80 transition-opacity"></div>
+                  
+                  <div className="relative flex items-start gap-5">
+                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform duration-300">
+                      <span className="material-symbols-outlined text-[32px]">dataset</span>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-slate-800 text-lg mb-2 group-hover:text-blue-600 transition-colors">题库管理</h4>
+                      <p className="text-sm text-slate-500 leading-relaxed">管理课程题库，支持单选题、多选题、判断题等多种题型录入与编辑</p>
+                      <div className="mt-4 flex items-center gap-2 text-blue-500 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span>进入管理</span>
+                        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="font-bold text-slate-800 text-base">题库管理</div>
-                  <div className="text-xs text-slate-400 mt-1.5">单选/多选/判断题录入</div>
                 </div>
 
-                {/* 模块2：试卷管理 */}
+                {/* 模块2：考试管理 */}
                 <div 
                   onClick={() => {
                     setExamHubModal({ isOpen: false, courseId: null, courseName: '' });
-                    navigate(`/admin/courses/papers/${examHubModal.courseId}`); // ⚠️ 注意路由路径
+                    navigate(`/admin/courses/exams/${examHubModal.courseId}`);
                   }}
-                  className="bg-white border border-slate-200 hover:border-amber-400 hover:shadow-md p-6 rounded-xl cursor-pointer transition-all flex flex-col items-center justify-center text-center group"
+                  className="group relative bg-white border-2 border-slate-100 hover:border-rose-300 hover:shadow-xl p-8 rounded-2xl cursor-pointer transition-all duration-300 overflow-hidden"
                 >
-                  <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined text-[28px]">description</span>
+                  {/* 背景装饰 */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-rose-50 to-transparent rounded-bl-[100px] opacity-60 group-hover:opacity-80 transition-opacity"></div>
+                  
+                  <div className="relative flex items-start gap-5">
+                    <div className="w-16 h-16 bg-gradient-to-br from-rose-500 to-rose-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/30 group-hover:scale-110 transition-transform duration-300">
+                      <span className="material-symbols-outlined text-[32px]">alarm_on</span>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-slate-800 text-lg mb-2 group-hover:text-rose-600 transition-colors">考试管理</h4>
+                      <p className="text-sm text-slate-500 leading-relaxed">创建考试、配置考试规则、AI智能出卷、发布考试与监考管理</p>
+                      <div className="mt-4 flex items-center gap-2 text-rose-500 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span>进入管理</span>
+                        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="font-bold text-slate-800 text-base">试卷管理</div>
-                  <div className="text-xs text-slate-400 mt-1.5">从题库抽题组成试卷</div>
-                </div>
-
-                {/* 模块3：考试管理 */}
-                <div 
-                  onClick={() => {
-                    setExamHubModal({ isOpen: false, courseId: null, courseName: '' });
-                    navigate(`/admin/courses/exams/${examHubModal.courseId}`); // ⚠️ 注意路由路径
-                  }}
-                  className="bg-white border border-slate-200 hover:border-rose-400 hover:shadow-md p-6 rounded-xl cursor-pointer transition-all flex flex-col items-center justify-center text-center group"
-                >
-                  <div className="w-14 h-14 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4 group-hover:bg-rose-500 group-hover:text-white transition-colors">
-                    <span className="material-symbols-outlined text-[28px]">alarm_on</span>
-                  </div>
-                  <div className="font-bold text-slate-800 text-base">考试管理</div>
-                  <div className="text-xs text-slate-400 mt-1.5">发布考试与监考</div>
                 </div>
 
               </div>
+
+              {/* 底部提示 */}
+              <div className="mt-8 text-center max-w-xl mx-auto">
+                <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-4">
+                  <div className="flex items-center justify-center gap-2 text-slate-500 text-sm">
+                    <span className="material-symbols-outlined text-[18px]">info</span>
+                    <span>考试系统支持 AI 智能出卷，可根据知识文档自动生成试卷</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

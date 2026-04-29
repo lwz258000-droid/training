@@ -151,7 +151,7 @@ export default function CourseBuild() {
     } else {
       setModalState({
         isOpen: true, type: 'hour', isEdit: false,
-        data: { chapterId, name: '', type: 0, resourceId: 0, duration: 0, sort: currentHourCount, content: '', liveUrl: '', playbackUrl: '' }
+        data: { chapterId, name: '', type: 0, resourceId: 0, duration: 0, sort: currentHourCount, content: '', liveUrl: null, playbackUrl: null }
       });
     }
   };
@@ -178,16 +178,19 @@ export default function CourseBuild() {
         isEdit ? await updateCourseChapter(payload) : await createCourseChapter(payload);
         alert(isEdit ? '章节更新成功' : '章节创建成功');
       } else {
+        // 🌟 根据后端要求：liveUrl 必须传真实地址，null 表示非直播
+        const isLiveHour = data.type === 2;
         const payload = {
           chapterId: parseInt(data.chapterId, 10), 
           name: data.name || '', 
           type: parseInt(data.type || 0, 10),
           resourceId: parseInt(data.resourceId || 0, 10), 
-          duration: parseInt(data.duration || 0, 10),
+          duration: parseInt(data.duration || 0, 10), 
           sort: parseInt(data.sort || 0, 10), 
           content: data.content || '', 
-          liveUrl: data.liveUrl || '', 
-          playbackUrl: data.playbackUrl || ''
+          // 🌟 直播课时必须传真实 liveUrl，非直播课时传 null
+          liveUrl: isLiveHour ? (data.liveUrl || '') : null, 
+          playbackUrl: isLiveHour ? (data.playbackUrl || null) : null
         };
         if (isEdit) payload.id = data.id;
         
@@ -286,6 +289,16 @@ export default function CourseBuild() {
                           </div>
 
                           <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {hour.type === 2 && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/admin/live/${hour.id}`)}
+                                className="text-slate-400 hover:text-red-600 flex items-center gap-1 text-xs"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">live_tv</span>
+                                <span>开始直播</span>
+                              </button>
+                            )}
                             <button type="button" onClick={() => handleOpenHourModal(chapter.id, hour)} className="text-slate-400 hover:text-blue-600 flex items-center gap-1 text-xs"><span className="material-symbols-outlined text-[16px]">edit</span></button>
                             <button type="button" onClick={() => handleDeleteHour(hour.id, hour.name)} className="text-slate-400 hover:text-red-500 flex items-center gap-1 text-xs"><span className="material-symbols-outlined text-[16px]">delete</span></button>
                           </div>
