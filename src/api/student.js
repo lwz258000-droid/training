@@ -111,6 +111,16 @@ export const getCourseExams = (courseId) => {
   return request.get(`/frontend/user-exams/course/${courseId}`);
 };
 
+// 🌟 0.5 查询学员对某场考试的答题状态（用于卡片状态展示）
+export const getMyExamStatus = (examId) => {
+  return request.get(`/frontend/user-exams/status/${examId}`);
+};
+
+// 🌟 0.6 查询学员某次考试的最终成绩结果
+export const getExamResult = (userExamId) => {
+  return request.get(`/frontend/user-exams/${userExamId}/result`);
+};
+
 // 🌟 1. 学员开始考试 (领卷)
 export const startUserExam = (data) => {
   return request.post('/frontend/user-exams', data);

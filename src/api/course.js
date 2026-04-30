@@ -200,3 +200,28 @@ export const deleteExam = (id) => {
 export const getExamQuestions = (examId) => {
   return request.get(`/backend/questions/exam/${examId}`);
 };
+
+// ==========================================
+// 🌟 5. 课程成绩管理 API
+// ==========================================
+
+export const getCourseScoreList = (courseId) => {
+  return request.get(`/backend/course/${courseId}/student-results`);
+};
+
+export const updateCourseWeights = (data) => {
+  return request.put('/backend/course/update', data);
+};
+
+export const submitProcessScore = (data) => {
+  return request.put('/backend/evaluation/score', data);
+};
+
+export const submitPracticalScore = (data) => {
+  return request.put('/backend/practical-evaluation/score', data);
+};
+
+// 🌟 获取某场考试的所有学员成绩列表
+export const getExamStudentResults = (examId) => {
+  return request.get(`/backend/exams/${examId}/student-results`);
+};

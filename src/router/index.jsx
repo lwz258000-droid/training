@@ -1,4 +1,3 @@
-import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 // --- 认证与登录 ---
@@ -12,7 +11,7 @@ import Assignments from '../pages/Student/Assignments/index.jsx';
 import Certificates from '../pages/Student/Certificates/index.jsx';
 // 🌟 引入学生端的考试大厅和沉浸式考场
 import StudentExamsIndex from '../pages/Student/Exams/index.jsx';
-import TakeExam from '../pages/Student/Exams/take.jsx'; // 注意文件名大小写，如果你的文件叫 Take.jsx，请改成 Take.jsx
+import TakeExam from '../pages/Student/Exams/Take.jsx';
 
 // --- 全局布局 Layouts ---
 import AdminLayout from '../layouts/AdminLayout.jsx';
@@ -30,10 +29,14 @@ import SystemManagement from '../pages/Admin/System/index.jsx';
 import Department from '../pages/Admin/System/Department.jsx';
 import CourseCategory from '../pages/Admin/Courses/Category/index.jsx';
 import CourseBuild from '../pages/Admin/Courses/Build/index.jsx';
+import CourseScoreCenter from '../pages/Admin/Courses/ScoreCenter/index.jsx';
+import CertificateSystem from '../pages/Admin/Certificates/System.jsx';
 
 // 🌟 引入直播页面
 import AdminLiveRoom from '../pages/Admin/LiveRoom/AdminLiveRoom.jsx';
 import StudentLivePage from '../pages/Student/Learning/StudentLivePage.jsx';
+
+// 🌟 引入学员评价页面（暂用兜底组件）
 
 // 临时兜底组件
 const FallbackPage = ({ title }) => (
@@ -96,7 +99,7 @@ const router = createBrowserRouter([
       { path: 'dashboard', element: <StudentDashboard /> },
       { path: 'assignments', element: <Assignments /> },
       // ✅ 修复报错：使用 StudentExamsIndex 替换掉原来未定义的 Exams
-      { path: 'exams', element: <StudentExamsIndex /> }, 
+      { path: 'exams', element: <StudentExamsIndex /> },
       { path: 'certificates', element: <Certificates /> },
     ]
   },
@@ -114,16 +117,19 @@ const router = createBrowserRouter([
       { path: 'department', element: <Department /> }, 
       
       // 课程列表与管理
-      { path: 'courses', element: <CourseList /> }, 
+      { path: 'courses', element: <CourseList /> },
       { path: 'courses/questions/:courseId', element: <QuestionBank /> },
       { path: 'courses/exams/:courseId', element: <ExamsManagement /> },
       { path: 'course-category', element: <CourseCategory /> },
       { path: 'courses/build/:id', element: <CourseBuild /> },
+      { path: 'courses/score/:courseId', element: <CourseScoreCenter /> },
+      { path: 'certificates', element: <CertificateSystem /> },
       
-      { path: 'resources', element: <Resources /> }, 
+      { path: 'resources', element: <Resources /> },
       { path: 'system', element: <SystemManagement /> }, 
-      { path: 'exams', element: <FallbackPage title="全局考试大厅" /> },
-      { path: 'statistics', element: <FallbackPage title="数据统计" /> }
+      { path: 'exams', element: <FallbackPage title="全局考试大厅" /> }, 
+      { path: 'statistics', element: <FallbackPage title="数据统计" /> }, 
+      { path: 'evaluation', element: <FallbackPage title="学员评价" /> }
     ]
   }
 ]);

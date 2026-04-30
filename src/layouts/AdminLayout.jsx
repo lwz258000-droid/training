@@ -31,6 +31,7 @@ export default function AdminLayout() {
     { path: '/admin/department', icon: 'account_tree', label: '组织架构' },
     { path: '/admin/resources', icon: 'folder_special', label: '素材中心' },
     { path: '/admin/system', icon: 'admin_panel_settings', label: '角色管理' },
+    { path: '/admin/certificates', icon: 'workspace_premium', label: '证书系统' },
   ];
 
   return (

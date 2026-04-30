@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { createExam, autoGenerateExam, bindExamQuestions, getQuestionList, getExamList, updateExam, deleteExam, getExamQuestions, aiGenerateExam } from '../../../../api/course';
+import { createExam, autoGenerateExam, bindExamQuestions, getQuestionList, getExamList, updateExam, deleteExam, getExamQuestions, aiGenerateExam, getExamStudentResults } from '../../../../api/course';
 
 export default function Exams() {
   const { courseId } = useParams();
@@ -12,9 +12,7 @@ export default function Exams() {
 
   const [configModal, setConfigModal] = useState({ isOpen: false, isEditing: false, examId: null });
   const [examForm, setExamForm] = useState({
-    title: '', duration: 120, 
-    weightProcess: 30, weightEnd: 70, weightPractical: 0,
-    passTotalScore: 60, passProcessScore: 18, passEndScore: 42, passPracticalScore: 0
+    title: '', duration: 120, passTotalScore: 60
   });
 
   const [autoModal, setAutoModal] = useState({ isOpen: false, examId: null, isSubmitting: false });
@@ -33,6 +31,11 @@ export default function Exams() {
   const [previewModal, setPreviewModal] = useState({ isOpen: false, examTitle: '' });
   const [examQuestions, setExamQuestions] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
+
+  // 🌟 考试学员成绩弹窗状态
+  const [scoreModal, setScoreModal] = useState({ isOpen: false, examId: null, examTitle: '' });
+  const [examResults, setExamResults] = useState([]);
+  const [loadingResults, setLoadingResults] = useState(false);
 
   // 🌟 AI 一键出卷状态
   const [aiModal, setAiModal] = useState({ isOpen: false, isGenerating: false });
@@ -84,18 +87,14 @@ export default function Exams() {
   };
 
   const handleOpenCreate = () => {
-    setExamForm({
-      title: '', duration: 120, weightProcess: 30, weightEnd: 70, weightPractical: 0,
-      passTotalScore: 60, passProcessScore: 18, passEndScore: 42, passPracticalScore: 0
-    });
+    setExamForm({ title: '', duration: 120, passTotalScore: 60 });
     setConfigModal({ isOpen: true, isEditing: false, examId: null });
   };
 
   const handleOpenEdit = (exam) => {
     setExamForm({
       title: exam.title || '', duration: exam.duration || 120,
-      weightProcess: exam.weightProcess || 0, weightEnd: exam.weightEnd || 0, weightPractical: exam.weightPractical || 0,
-      passTotalScore: exam.passTotalScore || 0, passProcessScore: exam.passProcessScore || 0, passEndScore: exam.passEndScore || 0, passPracticalScore: exam.passPracticalScore || 0
+      passTotalScore: exam.passTotalScore || 60
     });
     setConfigModal({ isOpen: true, isEditing: true, examId: exam.id });
   };
@@ -105,8 +104,7 @@ export default function Exams() {
     try {
       const payload = {
         courseId: parseInt(courseId, 10), title: examForm.title, duration: parseInt(examForm.duration),
-        weightProcess: parseInt(examForm.weightProcess), weightEnd: parseInt(examForm.weightEnd), weightPractical: parseInt(examForm.weightPractical),
-        passTotalScore: parseInt(examForm.passTotalScore), passProcessScore: parseInt(examForm.passProcessScore), passEndScore: parseInt(examForm.passEndScore), passPracticalScore: parseInt(examForm.passPracticalScore)
+        passTotalScore: parseInt(examForm.passTotalScore)
       };
       
       if (configModal.isEditing) {
@@ -213,6 +211,23 @@ export default function Exams() {
     }
   };
 
+  // 🌟 打开考试学员成绩弹窗
+  const openScoreModal = async (exam) => {
+    setScoreModal({ isOpen: true, examId: exam.id, examTitle: exam.title });
+    setExamResults([]);
+    setLoadingResults(true);
+    try {
+      const data = await getExamStudentResults(exam.id);
+      setExamResults(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('获取考试学员成绩失败', error);
+      alert('获取考试成绩失败，请检查网络');
+      setExamResults([]);
+    } finally {
+      setLoadingResults(false);
+    }
+  };
+
   // 🌟 AI 一键出卷：处理文件选择
   const handleAIFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -294,27 +309,27 @@ export default function Exams() {
     <div className="space-y-6 animate-in fade-in duration-300 relative pb-10">
       
       {/* 头部区域 */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/admin/courses')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
+      <div className="bg-gradient-to-r from-rose-600 via-pink-600 to-fuchsia-700 p-8 rounded-2xl shadow-md text-white flex items-center justify-between relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-72 h-72 bg-white opacity-[0.06] rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white opacity-[0.04] rounded-full blur-2xl translate-y-1/2 -translate-x-1/4"></div>
+        <div className="flex items-center gap-5 relative z-10">
+          <button onClick={() => navigate('/admin/courses')} className="p-2.5 hover:bg-white/15 rounded-xl text-white/80 hover:text-white transition-all border border-white/20">
             <span className="material-symbols-outlined">arrow_back</span>
           </button>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center border border-rose-100">
-              <span className="material-symbols-outlined text-2xl">alarm_on</span>
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">课程考试管理</h2>
-              <p className="text-slate-500 text-xs mt-1">当前管理课程 ID: <strong className="text-rose-500">{courseId}</strong></p>
-            </div>
+          <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center shrink-0 border border-white/25 shadow-inner">
+            <span className="material-symbols-outlined text-3xl">quiz</span>
+          </div>
+          <div>
+            <h2 className="text-2xl font-extrabold tracking-wide">课程考试管理</h2>
+            <p className="text-rose-100 mt-0.5 text-sm font-medium">创建考试 · 组卷出题 · 成绩管理</p>
           </div>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setAiModal({ isOpen: true, isGenerating: false })} className="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 shadow-violet-500/30">
-            <span className="material-symbols-outlined text-[18px]">auto_awesome</span> AI 一键出卷
+        <div className="flex gap-3 relative z-10">
+          <button onClick={() => setAiModal({ isOpen: true, isGenerating: false })} className="bg-white/12 hover:bg-white/22 backdrop-blur-sm text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all active:scale-95 border border-white/20 shadow-lg">
+            <span className="material-symbols-outlined text-[18px]">auto_awesome</span> AI 出卷
           </button>
-          <button onClick={handleOpenCreate} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 shadow-rose-500/20">
-            <span className="material-symbols-outlined text-[18px]">add</span> 创建新考试
+          <button onClick={handleOpenCreate} className="bg-white hover:bg-rose-50 text-rose-600 px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95">
+            <span className="material-symbols-outlined text-[18px]">add_circle</span> 创建新考试
           </button>
         </div>
       </div>
@@ -372,6 +387,9 @@ export default function Exams() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button onClick={() => openScoreModal(exam)} className="text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded text-xs font-bold shadow-sm transition-colors mr-2">
+                      成绩
+                    </button>
                     <button onClick={() => handleOpenEdit(exam)} className="text-slate-400 hover:text-blue-600 mr-3 transition-colors p-1" title="修改配置">
                       <span className="material-symbols-outlined text-[18px]">edit</span>
                     </button>
@@ -480,52 +498,72 @@ export default function Exams() {
 
       {/* ================= 🌟 配置弹窗 (新建 / 编辑共用) ================= */}
       {configModal.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <span className="material-symbols-outlined text-rose-500 text-[22px]">
-                  {configModal.isEditing ? 'edit_note' : 'add_circle'}
-                </span>
-                {configModal.isEditing ? '修改考试基本配置' : '创建考试基本信息'}
-              </h3>
-              <button onClick={() => setConfigModal({ isOpen: false, isEditing: false, examId: null })} className="text-slate-400 hover:bg-slate-200 p-1.5 rounded-lg"><span className="material-symbols-outlined">close</span></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4" onClick={e => e.target === e.currentTarget && setConfigModal({ isOpen: false, isEditing: false, examId: null })}>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-7 py-5 border-b border-rose-100 bg-gradient-to-r from-rose-50 to-pink-50 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2.5">
+                  <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-md ${configModal.isEditing ? 'bg-blue-500' : 'bg-gradient-to-br from-rose-500 to-pink-500'}`}>
+                    <span className="material-symbols-outlined text-[20px]">{configModal.isEditing ? 'edit_note' : 'add_circle'}</span>
+                  </span>
+                  {configModal.isEditing ? '修改考试配置' : '创建新考试'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 ml-11">{configModal.isEditing ? '调整考试基本信息' : '填写考试基本信息后，可在列表中为其组卷出题'}</p>
+              </div>
+              <button onClick={() => setConfigModal({ isOpen: false, isEditing: false, examId: null })} className="text-slate-300 hover:bg-slate-100 hover:text-slate-600 p-2 rounded-xl transition-colors"><span className="material-symbols-outlined">close</span></button>
             </div>
-            <form onSubmit={handleConfigSubmit} className="p-6 space-y-6">
-              <div className="grid grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-bold text-slate-700">考试标题 <span className="text-red-500">*</span></label>
-                  <input required autoFocus type="text" value={examForm.title} onChange={e => setExamForm({...examForm, title: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500" placeholder="例：期末大考"/>
+
+            <form onSubmit={handleConfigSubmit} className="p-7 space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px] text-rose-500">title</span> 考试标题
+                  <span className="text-red-500 font-black">*</span>
+                </label>
+                <input required autoFocus type="text" value={examForm.title} onChange={e => setExamForm({...examForm, title: e.target.value})} 
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400 transition-all bg-slate-50/50" 
+                  placeholder="例如：2026年第一季度安全合规考核"/>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-blue-500">timer</span> 考试时长
+                    <span className="text-red-500 font-black">*</span>
+                  </label>
+                  <input type="number" required min="1" value={examForm.duration} onChange={e => setExamForm({...examForm, duration: e.target.value})} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-all bg-slate-50/50"/>
+                  <p className="text-[11px] text-slate-400 pl-1">单位：分钟</p>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-bold text-slate-700">考试时长 (分钟)</label>
-                  <input type="number" required value={examForm.duration} onChange={e => setExamForm({...examForm, duration: e.target.value})} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-500"/>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-500">verified</span> 及格线
+                    <span className="text-red-500 font-black">*</span>
+                  </label>
+                  <input type="number" required min="0" max="100" value={examForm.passTotalScore} onChange={e => setExamForm({...examForm, passTotalScore: e.target.value})} 
+                    className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition-all bg-slate-50/50"/>
+                  <p className="text-[11px] text-slate-400 pl-1">满分 100 分制</p>
                 </div>
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
-                <p className="text-sm font-bold text-slate-800">成绩权重配置 (%)</p>
-                <div className="grid grid-cols-3 gap-4">
-                  <div><label className="text-xs text-slate-500 mb-1 block">平时分权重</label><input type="number" value={examForm.weightProcess} onChange={e => setExamForm({...examForm, weightProcess: e.target.value})} className="w-full border rounded p-2 text-sm"/></div>
-                  <div><label className="text-xs text-slate-500 mb-1 block">期末分权重</label><input type="number" value={examForm.weightEnd} onChange={e => setExamForm({...examForm, weightEnd: e.target.value})} className="w-full border rounded p-2 text-sm"/></div>
-                  <div><label className="text-xs text-slate-500 mb-1 block">实操分权重</label><input type="number" value={examForm.weightPractical} onChange={e => setExamForm({...examForm, weightPractical: e.target.value})} className="w-full border rounded p-2 text-sm"/></div>
-                </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-[18px] text-amber-500 shrink-0">warning</span>
+                <span className="text-xs font-bold text-amber-700">出题分数总和必须达到 100 分</span>
               </div>
 
-              <div className="bg-rose-50/50 p-4 rounded-xl border border-rose-100 space-y-4">
-                <p className="text-sm font-bold text-rose-800">及格分数线要求</p>
-                <div className="grid grid-cols-4 gap-4">
-                  <div><label className="text-xs text-rose-600 mb-1 block">总及格线</label><input type="number" value={examForm.passTotalScore} onChange={e => setExamForm({...examForm, passTotalScore: e.target.value})} className="w-full border-rose-200 rounded p-2 text-sm"/></div>
-                  <div><label className="text-xs text-rose-600 mb-1 block">平时分要求</label><input type="number" value={examForm.passProcessScore} onChange={e => setExamForm({...examForm, passProcessScore: e.target.value})} className="w-full border-rose-200 rounded p-2 text-sm"/></div>
-                  <div><label className="text-xs text-rose-600 mb-1 block">期末分要求</label><input type="number" value={examForm.passEndScore} onChange={e => setExamForm({...examForm, passEndScore: e.target.value})} className="w-full border-rose-200 rounded p-2 text-sm"/></div>
-                  <div><label className="text-xs text-rose-600 mb-1 block">实操分要求</label><input type="number" value={examForm.passPracticalScore} onChange={e => setExamForm({...examForm, passPracticalScore: e.target.value})} className="w-full border-rose-200 rounded p-2 text-sm"/></div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setConfigModal({ isOpen: false, isEditing: false, examId: null })} className="px-5 py-2 text-sm font-bold text-slate-700 bg-white border border-slate-300 rounded-lg">取消</button>
-                <button type="submit" className="px-6 py-2 text-sm font-bold text-white bg-rose-500 hover:bg-rose-600 rounded-lg shadow-md shadow-rose-500/20">
-                  {configModal.isEditing ? '保存修改' : '生成空壳试卷'}
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 mt-2">
+                <button type="button" onClick={() => setConfigModal({ isOpen: false, isEditing: false, examId: null })} className="px-6 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
+                  取消
+                </button>
+                <button type="submit" className={`px-8 py-2.5 text-sm font-bold text-white rounded-xl shadow-lg transition-all active:scale-[0.97] ${
+                  configModal.isEditing 
+                    ? 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-blue-500/30' 
+                    : 'bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 shadow-rose-500/30'
+                }`}>
+                  {configModal.isEditing ? (
+                    <><span className="material-symbols-outlined text-[16px] align-middle mr-1">check</span> 保存修改</>
+                  ) : (
+                    <><span className="material-symbols-outlined text-[16px] align-middle mr-1">add_task</span> 创建考试</>
+                  )}
                 </button>
               </div>
             </form>
@@ -687,6 +725,10 @@ export default function Exams() {
                 {/* 🌟 题型结构配置器 */}
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700">期望的试卷结构</label>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2.5 mb-1">
+                    <span className="material-symbols-outlined text-[18px] text-amber-500 shrink-0">warning</span>
+                    <span className="text-xs font-bold text-amber-700">出题分数总和必须达到 100 分（当前: {Object.values(aiConfig).reduce((sum, q) => sum + (q.enabled ? (parseInt(q.count) || 0) * (parseInt(q.score) || 0) : 0), 0)} 分）</span>
+                  </div>
                   <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                     {Object.keys(aiConfig).map((key) => {
                       const item = aiConfig[key];
@@ -732,6 +774,107 @@ export default function Exams() {
               </div>
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 考试学员成绩弹窗 */}
+      {scoreModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4" onClick={(e) => e.target === e.currentTarget && setScoreModal({ isOpen: false, examId: null, examTitle: '' })}>
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-slate-100 bg-emerald-50 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-emerald-500">leaderboard</span>
+                  {scoreModal.examTitle} — 学员成绩
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">共 {examResults.length} 条成绩记录</p>
+              </div>
+              <button onClick={() => setScoreModal({ isOpen: false, examId: null, examTitle: '' })} className="text-slate-400 hover:bg-slate-200 p-1.5 rounded-lg transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {loadingResults ? (
+                <div className="py-20 text-center text-slate-400">
+                  <span className="material-symbols-outlined text-4xl mb-2 block animate-spin">progress_activity</span>
+                  加载成绩数据中...
+                </div>
+              ) : examResults.length === 0 ? (
+                <div className="py-20 text-center text-slate-400">
+                  <span className="material-symbols-outlined text-4xl mb-2 block">empty_dashboard</span>
+                  暂无学员答卷记录
+                </div>
+              ) : (
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase">学员</th>
+                      <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase">客观分</th>
+                      <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase">主观分</th>
+                      <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase">最终得分</th>
+                      <th className="px-5 py-3 text-center text-xs font-bold text-slate-500 uppercase">状态</th>
+                      <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase">提交时间</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-100">
+                    {examResults.map((record, idx) => {
+                      const isSubmitted = record.status === 2;
+                      const isGrading = record.status === 1;
+                      const statusMap = {
+                        0: { label: '未开始', cls: 'bg-slate-100 text-slate-600' },
+                        1: { label: '待批改', cls: 'bg-amber-100 text-amber-700', sub: 'AI阅卷中' },
+                        2: { label: '已交卷', cls: 'bg-emerald-100 text-emerald-700' }
+                      };
+                      const st = statusMap[record.status] || { label: '未知', cls: 'bg-slate-100 text-slate-600' };
+
+                      return (
+                        <tr key={record.userExamId || idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                {(record.userName || '?').charAt(0)}
+                              </div>
+                              <div>
+                                <span className="font-medium text-sm text-slate-800">{record.userName}</span>
+                                <span className="block text-[10px] text-slate-400">{record.idCard}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-center text-sm font-medium text-slate-700">{isGrading ? '--' : (record.objectiveScore ?? 0)} 分</td>
+                          <td className="px-5 py-3 text-center text-sm font-medium text-slate-700">{isGrading ? '--' : (record.subjectiveScore ?? 0)} 分</td>
+                          <td className="px-5 py-3 text-center">
+                            <span className={`inline-block text-base font-bold ${!isSubmitted ? 'text-slate-300' : (record.finalScore >= (scoreModal.passTotalScore || 60) ? 'text-emerald-600' : 'text-red-500')}`}>
+                              {isGrading ? '--' : (isSubmitted ? (record.finalScore ?? 0) : '-')}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-center">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${st.cls}`}>
+                                {st.label}
+                              </span>
+                              {isGrading && <span className="text-[10px] text-amber-500 font-medium">{st.sub}</span>}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-sm text-slate-500 whitespace-nowrap">
+                            {record.submitTime ? new Date(record.submitTime).toLocaleString() : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 shrink-0 flex justify-between items-center text-xs text-slate-500">
+              <span>客观分 + 主观分 = 最终得分</span>
+              <button onClick={() => { setExamResults([]); setLoadingResults(true); getExamStudentResults(scoreModal.examId).then(data => { setExamResults(Array.isArray(data) ? data : []); }).catch(() => alert('刷新失败')).finally(() => setLoadingResults(false)); }} disabled={loadingResults} className="text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1 disabled:opacity-50">
+                <span className={`material-symbols-outlined text-[14px] ${loadingResults ? 'animate-spin' : ''}`}>refresh</span>
+                刷新
+              </button>
+            </div>
           </div>
         </div>
       )}

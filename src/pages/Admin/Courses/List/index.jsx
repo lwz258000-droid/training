@@ -473,6 +473,13 @@ export default function CourseList() {
                         考试 <span className="material-symbols-outlined text-[12px] leading-none">expand_more</span>
                       </button>
 
+                      <button 
+                        onClick={() => navigate(`/admin/courses/score/${course.id}`)} 
+                        className="text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded text-xs transition-colors shadow-sm"
+                      >
+                        成绩
+                      </button>
+
                       <button disabled={fetchingDetail} onClick={() => handleEditClick(course.id)} className="text-slate-500 hover:text-blue-600 mr-2 disabled:opacity-50">
                         编辑
                       </button>

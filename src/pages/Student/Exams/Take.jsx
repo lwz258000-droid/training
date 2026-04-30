@@ -13,6 +13,7 @@ export default function TakeExam() {
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
+  const [blockedStatus, setBlockedStatus] = useState(null);
 
   useEffect(() => {
     if (!examId) return;
@@ -24,6 +25,20 @@ export default function TakeExam() {
     try {
       const startRes = await startUserExam({ examId: parseInt(examId, 10) });
       const currentUid = startRes?.data?.userExamId || startRes?.userExamId;
+      const existingStatus = startRes?.data?.status || startRes?.status;
+
+      if (existingStatus === 2) {
+        setBlockedStatus(2);
+        setLoading(false);
+        return;
+      }
+
+      if (existingStatus === 1) {
+        setBlockedStatus(1);
+        setLoading(false);
+        return;
+      }
+
       if (!currentUid) throw new Error("无法获取答卷流水号");
       
       setUserExamId(currentUid);
@@ -31,7 +46,6 @@ export default function TakeExam() {
       const qRes = await getUserExamQuestions(currentUid);
       const qList = qRes?.data || qRes || [];
       console.log('📝 考试题目原始数据:', qList);
-      // 题目排序
       qList.sort((a, b) => (a.sort || 0) - (b.sort || 0));
       setQuestions(qList);
       
@@ -117,7 +131,7 @@ export default function TakeExam() {
     switch (type) {
       case 'single_choice': case '单选': case '单选题': return <span className={`${baseClass} bg-sky-50 text-sky-700 border-sky-100`}>单选题</span>;
       case 'multiple_choice': case '多选': case '多选题': return <span className={`${baseClass} bg-indigo-50 text-indigo-700 border-indigo-100`}>多选题</span>;
-      case 'judge': case '判断': case '判断题': return <span className={`${baseClass} bg-amber-50 text-amber-700 border-amber-100`}>判断题</span>;
+      case 'judge': case '判断': case '判断题': case 'true_false': return <span className={`${baseClass} bg-amber-50 text-amber-700 border-amber-100`}>判断题</span>;
       case 'short_answer': case '简答': case '简答题': return <span className={`${baseClass} bg-rose-50 text-rose-700 border-rose-100`}>简答题</span>;
       default: return <span className={`${baseClass} bg-slate-50 text-slate-700 border-slate-100`}>{type}</span>;
     }
@@ -130,6 +144,49 @@ export default function TakeExam() {
         <span className="material-symbols-outlined animate-spin text-5xl text-blue-500 mb-5">sync</span>
         <h2 className="text-xl font-black text-slate-800 tracking-tight">正在为您生成专属答卷...</h2>
         <p className="text-slate-500 mt-2 text-sm font-medium">请稍候，答题即将开始</p>
+      </div>
+    );
+  }
+
+  // ==================== 1.5 拦截状态：已考完 / 考试进行中（禁止重复进入） ====================
+  if (blockedStatus !== null) {
+    return (
+      <div className="min-h-screen bg-slate-50 py-12 px-4 flex justify-center animate-in fade-in duration-500">
+        <div className="bg-white max-w-lg w-full rounded-3xl shadow-xl overflow-hidden border border-slate-100">
+          <div className={`p-12 text-center text-white relative overflow-hidden ${blockedStatus === 2 ? 'bg-gradient-to-b from-emerald-600 to-teal-700' : 'bg-gradient-to-b from-amber-500 to-orange-600'}`}>
+            <span className="material-symbols-outlined text-[150px] opacity-10 absolute -right-6 -bottom-6">{blockedStatus === 2 ? 'task_alt' : 'hourglass_top'}</span>
+            <span className="material-symbols-outlined text-7xl mb-4 relative z-10">{blockedStatus === 2 ? 'verified' : 'pending'}</span>
+            <h2 className="text-3xl font-black mb-2 relative z-10 tracking-tight">
+              {blockedStatus === 2 ? '您已完成此考试' : '考试正在进行中'}
+            </h2>
+            <p className={ `text-sm font-medium relative z-10 ${blockedStatus === 2 ? 'text-emerald-100' : 'text-amber-100'}` }>
+              {blockedStatus === 2
+                ? '您的答卷已提交，无法重复参加同一考试。请等待成绩发布后申请证书。'
+                : '您已有未完成的考试记录，请返回继续作答或联系管理员。'
+              }
+            </p>
+          </div>
+
+          <div className="p-8 space-y-4">
+            {blockedStatus === 1 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                <span className="material-symbols-outlined text-amber-500 mt-0.5">info</span>
+                <div className="text-sm text-amber-800">
+                  <p className="font-bold">提示</p>
+                  <p>如果您在答题过程中遇到异常退出，可尝试重新点击进入考场恢复答题。</p>
+                </div>
+              </div>
+            )}
+
+            <button onClick={() => navigate('/student/exams')} className={`w-full py-4 rounded-xl font-black text-base shadow-lg transition-all active:scale-95 ${
+              blockedStatus === 2
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-500/20'
+                : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-amber-500/20'
+            }`}>
+              返回考试大厅
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
